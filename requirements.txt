@@ -27,3 +27,5 @@ slowapi==0.1.9
 
 # ML/Detection
 ultralytics==8.0.230
+
+psycopg2-binary==2.9.9
