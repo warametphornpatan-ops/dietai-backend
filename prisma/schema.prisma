@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model admins {
+  admin_id      Int      @id @default(autoincrement())
+  org_code      String   @db.VarChar(50)
+  citizen_id    String   @db.VarChar(13)
+  first_name    String   @db.VarChar(100)
+  last_name     String   @db.VarChar(100)
+  email         String   @db.VarChar(100)
+  username      String   @unique(map: "username") @db.VarChar(50)
+  password_hash String   @db.VarChar(255)
+  created_at    DateTime @default(now()) @db.Timestamp(0)
+}
+
+model doctors {
+  id            Int     @id @default(autoincrement())
+  org_code      String  @db.VarChar(50)
+  first_name    String  @db.VarChar(100)
+  last_name     String  @db.VarChar(100)
+  username      String  @unique(map: "username") @db.VarChar(50)
+  password_hash String  @db.VarChar(255)
+  email         String? @db.VarChar(100)
+  citizen_id    String  @db.VarChar(13)
+}
+
+model food_logs {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  food_name  String   @db.VarChar(255)
+  calories   Int?     @default(0)
+  carbs      Int?     @default(0)
+  protein    Int?     @default(0)
+  fat        Int?     @default(0)
+  image_url  String?  @db.Text
+  created_at DateTime @default(now()) @db.Timestamp(0)
+}
+
+model health_records {
+  id             Int       @id @default(autoincrement())
+  user_id        String    @db.VarChar(50)
+  systolic       Int?      
+  diastolic      Int?      
+  pulse          Int?      
+  recommendation String?   @db.Text
+  created_at     DateTime? @default(now()) @db.DateTime(0)
+}
+
+model refresh_tokens {
+  id         Int       @id @default(autoincrement())
+  user_id    String
+  token_hash String?   @unique(map: "token_hash") @db.VarChar(255)
+  created_at DateTime? @db.DateTime(0)
+  expires_at DateTime  @db.DateTime(0)
+  is_revoked Boolean?
+
+  @@index([id], map: "ix_refresh_tokens_id")
+  @@index([user_id], map: "ix_refresh_tokens_user_id")
+}
+
+model token_blacklist {
+  id         Int       @id @default(autoincrement())
+  jti        String?   @unique(map: "ix_token_blacklist_jti") @db.VarChar(500)
+  created_at DateTime? @db.DateTime(0)
+  expires_at DateTime? @db.DateTime(0)
+
+  @@index([id], map: "ix_token_blacklist_id")
+}
+
+model user {
+  id              String    @id
+  email           String?   @unique(map: "email")
+  username        String    @unique(map: "username")
+  password        String    @db.VarChar(255)
+  role            String    @db.VarChar(20)
+  citizen_id      String?   @db.VarChar(13)
+  firstName       String?
+  lastName        String?
+  gender          String?   @db.VarChar(20)
+  age             Int?
+  heightCm        Float?    @db.Float
+  weightKg        Float?    @db.Float
+  targetWeightKg  Float?    @db.Float
+  activityLevel   String?   @db.VarChar(50)
+  goal            String?   @db.VarChar(100)
+  healthInfo      String?   @db.Text
+  createdAt       DateTime? @default(now()) @db.DateTime(0)
+  target_calories Int?      @default(0)
+  target_carbs    Int?      @default(0)
+  target_protein  Int?      @default(0)
+  target_fat      Int?      @default(0)
+  bmr             Float?    @db.Float
+  bmi             Float?    @db.Float
+}

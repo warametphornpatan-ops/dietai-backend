@@ -1,0 +1,147 @@
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, Literal
+from datetime import datetime
+
+# -----------------------------
+# Users
+# -----------------------------
+class UserCreate(BaseModel):
+    email: Optional[EmailStr] = None
+    username: str
+    password: str
+    # ✅ แก้ไข: ตั้งชื่อ field ตรงๆ ว่า firstName/lastName
+    # และใช้ alias="first_name"/"last_name" เพื่อรับได้ทั้งสองแบบ
+    # populate_by_name=True ทำให้ส่งมาเป็น firstName หรือ first_name ก็รับได้ทั้งคู่
+    firstName: str = Field(validation_alias="first_name")
+    lastName: str = Field(validation_alias="last_name")
+    
+    email: Optional[str] = None
+    gender: Optional[str] = None
+    age: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    target_weight_kg: Optional[float] = None
+    waist_cm: Optional[float] = None
+    activity_level: Optional[str] = None
+    goal: Optional[str] = None
+    health_info: Optional[str] = None
+    citizen_id: str
+    role: Literal["user", "doctor", "admin"] = "user"
+
+    class Config:
+        populate_by_name = True  # ✅ รับได้ทั้ง firstName และ first_name
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: Optional[EmailStr] = None
+    username: str
+    # ✅ แก้ไข: ให้ตรงกับ models.User ที่ใช้ firstName/lastName
+    firstName: Optional[str] = Field(None, alias="firstName")
+    lastName: Optional[str] = Field(None, alias="lastName")
+    created_at: Optional[datetime] = None
+    role: Optional[str] = None
+    target_calories: Optional[int] = 0
+    target_carbs: Optional[int] = 0
+    target_protein: Optional[int] = 0
+    target_fat: Optional[int] = 0
+    bmi: Optional[float] = None
+    bmr: Optional[float] = None
+    goal: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+        populate_by_name = True
+
+
+# -----------------------------
+# Doctors
+# -----------------------------
+class DoctorCreate(BaseModel):
+    org_code: str
+    citizen_id: str
+    first_name: str
+    last_name: str
+    username: str
+    email: EmailStr
+    role: Literal["doctor"] = "doctor"
+
+
+# -----------------------------
+# Password Reset
+# -----------------------------
+class ResetPassword(BaseModel):
+    identifier: str
+    is_email: bool
+    username: str
+    new_password: str
+
+
+# -----------------------------
+# Food Logs
+# -----------------------------
+class FoodLogCreate(BaseModel):
+    user_id: str
+    food_name: str
+    calories: float
+    carbs: float
+    protein: float
+    fat: float
+    image_url: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# -----------------------------
+# Health Records
+# -----------------------------
+class HealthRecordCreate(BaseModel):
+    systolic: Optional[int] = None
+    diastolic: Optional[int] = None
+    pulse: Optional[int] = None
+    blood_pressure: Optional[str] = None
+    blood_sugar: Optional[float] = None
+    recommendation: str
+
+
+# -----------------------------
+# Profile Update
+# -----------------------------
+class UserProfileUpdateReq(BaseModel):
+    age: int
+    weight_kg: float
+    height_cm: float
+    health_info: Optional[str] = None
+    bmr: Optional[float] = None
+    bmi: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+# -----------------------------
+# Admin
+# -----------------------------
+class AdminCreate(BaseModel):
+    org_code: str
+    citizen_id: str
+    first_name: str
+    last_name: str
+    email: EmailStr
+    username: str
+    password: str
+    role: Literal["admin"] = "admin"
+
+
+class AdminResponse(BaseModel):
+    admin_id: str
+    org_code: str
+    citizen_id: str
+    first_name: str
+    last_name: str
+    email: EmailStr
+    username: str
+
+    class Config:
+        from_attributes = True
