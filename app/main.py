@@ -50,6 +50,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://dietai-frontend.vercel.app",
         "https://dietai-frontend-5tcrd7ufw-warametphornpatan-ops-projects.vercel.app",
         "https://dietai-frontend-git-main-warametphornpatan-ops-projects.vercel.app",
         "https://dietai-frontend-git-main-warametphornpatan-ops-projects.vercel.app",
