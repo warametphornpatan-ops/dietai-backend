@@ -1,3 +1,4 @@
+import hashlib
 import os
 from uuid import uuid4
 from typing import Optional
@@ -231,7 +232,7 @@ async def login(request: LoginReq, db: Session = Depends(get_db)):
 
     db.add(RefreshToken(
         user_id=account_id,
-        token_hash=hash_password(refresh_token),
+        token_hash=hashlib.sha256(refresh_token.encode()).hexdigest(),
         expires_at=datetime.now(timezone.utc) + timedelta(days=7),
     ))
     db.commit()
