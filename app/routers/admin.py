@@ -4,6 +4,7 @@ from sqlalchemy import or_, func
 from passlib.hash import bcrypt_sha256
 from typing import Optional, Dict, List
 from pydantic import BaseModel
+import os
 
 from ..database import get_db
 from .. import models
@@ -13,6 +14,8 @@ from app.security import create_access_token
 # เปิดใช้งาน Supabase Client สำหรับฝั่ง Backend
 from supabase import create_client, Client
 
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
