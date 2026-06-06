@@ -20,12 +20,12 @@ def check_organization(org_code: str, db: Session = Depends(get_db)):
 
     # 2. คิวรีข้อมูลจากตาราง health_office (ล้างเครื่องหมายคำพูด " ออกให้สะอาดตั้งแต่ใน SQL)
     sql = text("""
-        SELECT REPLACE(`COL 1`, '"', '') AS hospital_name
-        FROM health_office 
-        WHERE REPLACE(`COL 4`, '"', '') = :code 
-           OR REPLACE(`COL 3`, '"', '') LIKE :code_like
-        LIMIT 1
-    """)
+    SELECT REPLACE("COL 1", '"', '') AS hospital_name
+    FROM health_office 
+    WHERE REPLACE("COL 4", '"', '') = :code 
+       OR REPLACE("COL 3", '"', '') LIKE :code_like
+    LIMIT 1
+""")
     
     # 3. ใช้ .mappings().first() เพื่ออ่านค่าผ่านชื่อ Key (คอลัมน์ Alias) ได้อย่างปลอดภัย
     result = db.execute(sql, {
