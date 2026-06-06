@@ -9,7 +9,7 @@ pymysql==1.1.0
 
 # Security
 passlib[bcrypt]==1.7.4
-PyJWT==2.8.1
+PyJWT==2.13.0
 python-dotenv==1.0.0
 
 # Validation & Settings
