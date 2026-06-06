@@ -29,3 +29,6 @@ slowapi==0.1.9
 ultralytics==8.0.230
 
 psycopg2-binary==2.9.9
+
+pydantic[email]==2.7.0
+email-validator==2.1.0
