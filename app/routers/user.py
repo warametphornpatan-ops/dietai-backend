@@ -234,6 +234,7 @@ async def login(request: LoginReq, db: Session = Depends(get_db)):
         user_id=account_id,
         token_hash=hashlib.sha256(refresh_token.encode()).hexdigest(),
         expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        is_revoked=0,
     ))
     db.commit()
 
@@ -258,8 +259,8 @@ async def logout(
 ):
     db.query(RefreshToken).filter(
         RefreshToken.user_id == current_user.id,
-        RefreshToken.is_revoked == False,
-    ).update({"is_revoked": True})
+        RefreshToken.is_revoked == 0,
+    ).update({"is_revoked": 1})
     db.commit()
 
     response = JSONResponse({"message": "Logged out successfully"})
