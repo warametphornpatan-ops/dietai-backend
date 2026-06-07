@@ -29,8 +29,14 @@ async def detect_all(file: UploadFile = File(...)):
     for result in results:
         if result.boxes is not None:
             for box in result.boxes:
+                class_name = model.names[int(box.cls[0])]
+                
+                # Normalize: trim whitespace + lowercase
+                normalized_name = class_name.strip().lower()
+                
                 final_predictions.append({
-                    "class": model.names[int(box.cls[0])],
+                    "class": normalized_name,  # ส่งชื่อที่ normalize แล้ว
+                    "raw_class": class_name,   # เก็บชื่อเดิมไว้ด้วยเผื่อ debug
                     "confidence": round(float(box.conf[0]) * 100, 2),
                     "type": "food"
                 })

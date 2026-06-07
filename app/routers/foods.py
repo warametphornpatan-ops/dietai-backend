@@ -291,10 +291,28 @@ def get_foods_by_category(category: str, db: Session = Depends(get_db)):
 @router.get("/search")
 def search_food_by_name(name: str, db: Session = Depends(get_db)):
     result = db.execute(
-        text("SELECT MenuID, ThaiName, EnglishName, Calories, Category FROM thai_foodmenu WHERE ThaiName LIKE :name LIMIT 5"),
+        text("""
+            SELECT "MenuID", "ThaiName", "EnglishName", "Calories", "Category",
+                   "Nutrition"
+            FROM thai_foodmenu
+            WHERE LOWER("EnglishName") LIKE LOWER(:name)
+               OR LOWER("ThaiName") LIKE LOWER(:name)
+            LIMIT 5
+        """),
         {"name": f"%{name}%"}
     ).mappings().all()
-    return [dict(r) for r in result]
+
+    return [
+        {
+            "MenuID": r["MenuID"],
+            "ThaiName": r["ThaiName"],
+            "EnglishName": r["EnglishName"],
+            "Calories": r["Calories"],
+            "Category": r["Category"],
+            "Nutrition": r["Nutrition"],  # ← ต้องส่งกลับด้วย!
+        }
+        for r in result
+    ]
 
 @router.post("/FoodUploadModel")
 async def upload_food_image(
