@@ -275,6 +275,21 @@ def get_food_recommendations(
         "beverages": recommended_beverages
     }
 
+@router.get("/by-category")
+def get_foods_by_category(category: str, db: Session = Depends(get_db)):
+    result = db.execute(
+        text("SELECT MenuID, ThaiName, EnglishName, Calories, Category FROM thai_foodmenu WHERE Category = :cat"),
+        {"cat": category}
+    ).mappings().all()
+    return [dict(r) for r in result]
+
+@router.get("/search")
+def search_food_by_name(name: str, db: Session = Depends(get_db)):
+    result = db.execute(
+        text("SELECT MenuID, ThaiName, EnglishName, Calories, Category FROM thai_foodmenu WHERE ThaiName LIKE :name LIMIT 5"),
+        {"name": f"%{name}%"}
+    ).mappings().all()
+    return [dict(r) for r in result]
 
 @router.post("/FoodUploadModel")
 async def upload_food_image(
