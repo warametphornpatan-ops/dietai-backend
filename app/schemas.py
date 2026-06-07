@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from typing import Optional, Literal
 from datetime import datetime
 
@@ -6,16 +6,16 @@ from datetime import datetime
 # Users
 # -----------------------------
 class UserCreate(BaseModel):
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None
     username: str
     password: str
-    # ✅ แก้ไข: ตั้งชื่อ field ตรงๆ ว่า firstName/lastName
-    # และใช้ alias="first_name"/"last_name" เพื่อรับได้ทั้งสองแบบ
-    # populate_by_name=True ทำให้ส่งมาเป็น firstName หรือ first_name ก็รับได้ทั้งคู่
-    firstName: str = Field(validation_alias="first_name")
-    lastName: str = Field(validation_alias="last_name")
-    
-    email: Optional[str] = None
+
+    # ✅ แก้ไข: รับได้ทั้ง firstName และ first_name
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
     gender: Optional[str] = None
     age: Optional[int] = None
     height_cm: Optional[float] = None
@@ -28,15 +28,23 @@ class UserCreate(BaseModel):
     citizen_id: str
     role: Literal["user", "doctor", "admin"] = "user"
 
+    # ✅ รวม firstName/first_name ให้เป็นค่าเดียวกัน
+    @model_validator(mode="after")
+    def merge_name_fields(self) -> "UserCreate":
+        if not self.firstName and self.first_name:
+            self.firstName = self.first_name
+        if not self.lastName and self.last_name:
+            self.lastName = self.last_name
+        return self
+
     class Config:
-        populate_by_name = True  # ✅ รับได้ทั้ง firstName และ first_name
+        populate_by_name = True
 
 
 class UserResponse(BaseModel):
     id: str
     email: Optional[EmailStr] = None
     username: str
-    # ✅ แก้ไข: ให้ตรงกับ models.User ที่ใช้ firstName/lastName
     firstName: Optional[str] = Field(None, alias="firstName")
     lastName: Optional[str] = Field(None, alias="lastName")
     created_at: Optional[datetime] = None
@@ -62,6 +70,8 @@ class DoctorCreate(BaseModel):
     citizen_id: str
     first_name: str
     last_name: str
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
     username: str
     email: EmailStr
     role: Literal["doctor"] = "doctor"
