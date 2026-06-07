@@ -278,10 +278,15 @@ def get_food_recommendations(
 @router.get("/by-category")
 def get_foods_by_category(category: str, db: Session = Depends(get_db)):
     result = db.execute(
-        text("SELECT MenuID, ThaiName, EnglishName, Calories, Category FROM thai_foodmenu WHERE Category = :cat"),
+        text("""SELECT "MenuID", "ThaiName", "EnglishName", "Calories", "Category",
+                       "Protein", "Fat", "Carbohydrates"
+                FROM thai_foodmenu WHERE "Category" = :cat"""),
         {"cat": category}
     ).mappings().all()
-    return [dict(r) for r in result]
+    return [{"MenuID": r["MenuID"], "ThaiName": r["ThaiName"], "EnglishName": r["EnglishName"],
+             "Calories": r["Calories"], "Category": r["Category"],
+             "Nutrition": {"protein": r["Protein"], "fat": r["Fat"], "carbohydrates": r["Carbohydrates"]}}
+            for r in result]
 
 @router.get("/search")
 def search_food_by_name(name: str, db: Session = Depends(get_db)):
