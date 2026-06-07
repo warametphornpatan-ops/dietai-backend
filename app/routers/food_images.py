@@ -1,11 +1,12 @@
 # app/routers/food_images.py
+import os
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import Response
 from datetime import datetime
 from bson import ObjectId
 
 from ..db.mongo import food_images_col, wrap_binary
-from app.routers.user import get_current_user  # ใช้ Depends ตัวเดิมที่เช็ค JWT
+from app.routers.user import get_current_user
 
 router = APIRouter(
     prefix="/food-images",
@@ -15,7 +16,7 @@ router = APIRouter(
 @router.post("")
 async def upload_food_image(
     file: UploadFile = File(...),
-    current_user = Depends(get_current_user),   # ใครอัปโหลด
+    current_user = Depends(get_current_user),
 ):
     content = await file.read()
 
@@ -28,8 +29,12 @@ async def upload_food_image(
     }
 
     result = food_images_col.insert_one(doc)
-    image_url = f"http://127.0.0.1:8000/food-images/{result.inserted_id}"
-    return {"id": str(result.inserted_id),"url": image_url}
+    
+    # ✅ ใช้ environment variable แทน hardcode localhost
+    base_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+    image_url = f"{base_url}/food-images/{result.inserted_id}"
+    
+    return {"id": str(result.inserted_id), "url": image_url}
 
 @router.get("/{image_id}")
 async def get_food_image(image_id: str):
