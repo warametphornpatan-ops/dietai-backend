@@ -53,13 +53,11 @@ app.add_middleware(
         "https://dietai-frontend.vercel.app",
         "https://dietai-frontend-5tcrd7ufw-warametphornpatan-ops-projects.vercel.app",
         "https://dietai-frontend-git-main-warametphornpatan-ops-projects.vercel.app",
-        "https://dietai-frontend-git-main-warametphornpatan-ops-projects.vercel.app",
+        "https://dietai-admin.vercel.app",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=600,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 #app.add_middleware(RateLimitMiddleware, requests_per_hour=settings.rate_limit_requests)
 #app.add_middleware(ErrorHandlingMiddleware)
