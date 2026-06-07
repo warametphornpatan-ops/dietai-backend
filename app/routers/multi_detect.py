@@ -8,16 +8,7 @@ _model = None
 
 def get_model():
     global _model
-    import torch
-    import torch.nn.modules.container
     from ultralytics import YOLO
-    import ultralytics.nn.tasks
-
-    torch.serialization.add_safe_globals([
-        ultralytics.nn.tasks.DetectionModel,
-        torch.nn.modules.container.Sequential,
-    ])
-
     if _model is None:
         _model = YOLO("foods_carb.pt")
     return _model
@@ -32,7 +23,6 @@ async def detect_all(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="ไฟล์รูปภาพไม่ถูกต้อง")
 
     model = get_model()
-
     final_predictions = []
 
     results = model(image, conf=0.50)
