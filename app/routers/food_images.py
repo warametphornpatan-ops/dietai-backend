@@ -18,23 +18,28 @@ async def upload_food_image(
     file: UploadFile = File(...),
     current_user = Depends(get_current_user),
 ):
-    content = await file.read()
+    try:
+        content = await file.read()
 
-    doc = {
-        "filename": file.filename,
-        "content_type": file.content_type or "image/jpeg",
-        "data": wrap_binary(content),
-        "user_id": current_user.id,
-        "created_at": datetime.utcnow(),
-    }
+        doc = {
+            "filename": file.filename,
+            "content_type": file.content_type or "image/jpeg",
+            "data": wrap_binary(content),
+            "user_id": current_user.id,
+            "created_at": datetime.utcnow(),
+        }
 
-    result = food_images_col.insert_one(doc)
-    
-    # ✅ ใช้ environment variable แทน hardcode localhost
-    base_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-    image_url = f"{base_url}/food-images/{result.inserted_id}"
-    
-    return {"id": str(result.inserted_id), "url": image_url}
+        result = food_images_col.insert_one(doc)
+        
+        base_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+        image_url = f"{base_url}/food-images/{result.inserted_id}"
+        
+        return {"id": str(result.inserted_id), "url": image_url}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # ← จะ print ใน Render log
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{image_id}")
 async def get_food_image(image_id: str):
