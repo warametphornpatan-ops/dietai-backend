@@ -170,11 +170,12 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
 
         # ✅ ดึงประวัติอาหารรายมื้อ
         food_logs_query = text("""
-        SELECT id, food_name as food_name, calories, carbs, protein, created_at
-        FROM food_logs 
-        WHERE user_id = :user_id 
-        ORDER BY created_at DESC
-    """)
+    SELECT id, food_name, calories, carbs, protein, created_at
+    FROM food_logs 
+    WHERE user_id = :user_id 
+    ORDER BY created_at DESC
+    LIMIT 50
+""")
         
         food_logs_result = db.execute(food_logs_query, {"user_id": u.id}).mappings().all()
         food_logs_list = [
@@ -190,12 +191,17 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
 ]
             
         # ✅ ดึงข้อมูลสุขภาพ (Health Records)
-        health_records_query = text("""
-            SELECT id, systolic, diastolic, pulse, recommendation, created_at
-            FROM health_records
-            WHERE user_id = :user_id
-            ORDER BY created_at DESC
-        """)
+        daily_nutrition_query = text("""
+    SELECT 
+        DATE(created_at) as log_date,
+        SUM(calories) as total_cal,
+        SUM(carbs) as total_carb
+    FROM food_logs
+    WHERE user_id = :user_id
+    GROUP BY DATE(created_at)
+    ORDER BY log_date DESC
+    LIMIT 30
+""")
         hr_result = db.execute(health_records_query, {"user_id": u.id}).mappings().all()
         health_records_list = [
             {
