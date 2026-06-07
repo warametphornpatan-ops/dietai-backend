@@ -148,22 +148,22 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
 
         # ✅ ดึงสรุปโภชนาการรายวัน
         daily_nutrition_query = text("""
-            SELECT 
-                DATE(created_at) as log_date,
-                SUM(calories) as totalCal,
-                SUM(carbs) as totalCarb
-            FROM food_logs
-            WHERE user_id = :user_id
-            GROUP BY DATE(created_at)
-            ORDER BY log_date DESC
-        """)
+        SELECT 
+            DATE(created_at) as log_date,
+            SUM(calories) as total_cal,
+            SUM(carbs) as total_carb
+        FROM food_logs
+        WHERE user_id = :user_id
+        GROUP BY DATE(created_at)
+        ORDER BY log_date DESC
+    """)
         
         daily_result = db.execute(daily_nutrition_query, {"user_id": u.id}).mappings().all()
         daily_nutrition_list = [
             {
                 "date": str(row["log_date"]),
-                "totalCal": float(row["totalCal"] or 0),
-                "totalCarb": float(row["totalCarb"] or 0)
+                "totalCal": float(row["total_cal"] or 0),
+                "totalCarb": float(row["total_carb"] or 0)
             }
             for row in daily_result
         ]
