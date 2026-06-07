@@ -90,5 +90,5 @@ class RefreshToken(Base):
     token_hash = Column(String(255), unique=True)
     created_at = Column(DateTime, default=func.now())
     expires_at = Column(DateTime, nullable=False)
-    is_revoked = Column(Boolean, default=False)
+    is_revoked = Column(Integer, default=0)
 
