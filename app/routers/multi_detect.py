@@ -4,11 +4,10 @@ import io
 
 router = APIRouter(prefix="/food", tags=["food-recognition"])
 
-_fruit_model = None
-_best_model = None
+_model = None
 
-def get_models():
-    global _fruit_model, _best_model
+def get_model():
+    global _model
     import torch
     from ultralytics import YOLO
     import ultralytics.nn.tasks
@@ -17,11 +16,9 @@ def get_models():
         ultralytics.nn.tasks.DetectionModel
     ])
 
-    if _fruit_model is None:
-        _fruit_model = YOLO("foods_carb.pt")
-    if _best_model is None:
-        _best_model = YOLO("best.pt")
-    return _fruit_model, _best_model
+    if _model is None:
+        _model = YOLO("foods_carb.pt")
+    return _model
 
 
 @router.post("/detect")
@@ -32,26 +29,16 @@ async def detect_all(file: UploadFile = File(...)):
     except Exception:
         raise HTTPException(status_code=400, detail="ไฟล์รูปภาพไม่ถูกต้อง")
 
-    fruit_model, best_model = get_models()
+    model = get_model()
 
     final_predictions = []
 
-    fruit_results = fruit_model(image, conf=0.50)
-    for result in fruit_results:
+    results = model(image, conf=0.50)
+    for result in results:
         if result.boxes is not None:
             for box in result.boxes:
                 final_predictions.append({
-                    "class": fruit_model.names[int(box.cls[0])],
-                    "confidence": round(float(box.conf[0]) * 100, 2),
-                    "type": "fruit"
-                })
-
-    best_results = best_model(image, conf=0.75)
-    for result in best_results:
-        if result.boxes is not None:
-            for box in result.boxes:
-                final_predictions.append({
-                    "class": best_model.names[int(box.cls[0])],
+                    "class": model.names[int(box.cls[0])],
                     "confidence": round(float(box.conf[0]) * 100, 2),
                     "type": "food"
                 })
