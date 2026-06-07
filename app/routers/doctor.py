@@ -170,24 +170,24 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
 
         # ✅ ดึงประวัติอาหารรายมื้อ
         food_logs_query = text("""
-            SELECT id, food_name AS foodName, calories, carbs, protein, created_at AS createdAt 
-            FROM food_logs 
-            WHERE user_id = :user_id 
-            ORDER BY created_at DESC
-        """)
+        SELECT id, food_name as food_name, calories, carbs, protein, created_at
+        FROM food_logs 
+        WHERE user_id = :user_id 
+        ORDER BY created_at DESC
+    """)
         
         food_logs_result = db.execute(food_logs_query, {"user_id": u.id}).mappings().all()
         food_logs_list = [
-            {
-                "id": row["id"],
-                "foodName": row["foodName"],
-                "calories": float(row["calories"] or 0),
-                "carbs": float(row["carbs"] or 0),
-                "protein": float(row["protein"] or 0),
-                "createdAt": row["createdAt"].isoformat() if row["createdAt"] else None
-            }
-            for row in food_logs_result
-        ]
+    {
+        "id": row["id"],
+        "foodName": row["food_name"],
+        "calories": float(row["calories"] or 0),
+        "carbs": float(row["carbs"] or 0),
+        "protein": float(row["protein"] or 0),
+        "createdAt": row["created_at"].isoformat() if row["created_at"] else None
+    }
+    for row in food_logs_result
+]
             
         # ✅ ดึงข้อมูลสุขภาพ (Health Records)
         health_records_query = text("""
