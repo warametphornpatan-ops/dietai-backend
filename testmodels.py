@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # ระบุตำแหน่งไฟล์โมเดลของคุณให้ถูกต้อง
-model_path = r"C:\Projectend\back-end\best.pt" 
+model_path = r"C:\Projectend\back-end\foods_carb.pt" 
 
 try:
     print("กำลังโหลดโมเดล...")

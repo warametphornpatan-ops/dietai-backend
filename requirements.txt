@@ -26,10 +26,8 @@ python-json-logger==2.0.7
 # Rate limiting
 slowapi==0.1.9
 
-# ML/Detection
-torch==2.0.1
-torchvision==0.15.2
-ultralytics>=8.3.0
+# HTTP Client (ยิง API ไปหา HuggingFace)
+httpx==0.27.0
 
 psycopg2-binary==2.9.9
 
