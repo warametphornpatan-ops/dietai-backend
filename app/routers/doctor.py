@@ -121,7 +121,6 @@ def sync_doctor_password(payload: SyncPasswordReq, db: Session = Depends(get_db)
 # ==========================================
 @router.get("/patients")
 def get_patients(name: str = "", db: Session = Depends(get_db)):
-    # ค้นหา User ที่เป็นคนไข้
     users = (
         db.query(models.User)
         .filter(
@@ -137,7 +136,6 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
     results = []
 
     for u in users:
-        # ✅ คำนวณ BMI 
         bmi = None
         height = getattr(u, "height_cm", getattr(u, "heightCm", None))
         weight = getattr(u, "weight_kg", getattr(u, "weightKg", None))
@@ -146,18 +144,17 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
             h = height / 100
             bmi = round(weight / (h * h), 2)
 
-        # ✅ ดึงสรุปโภชนาการรายวัน
+        # ── โภชนาการรายวัน ──
         daily_nutrition_query = text("""
-        SELECT 
-            DATE(created_at) as log_date,
-            SUM(calories) as total_cal,
-            SUM(carbs) as total_carb
-        FROM food_logs
-        WHERE user_id = :user_id
-        GROUP BY DATE(created_at)
-        ORDER BY log_date DESC
-    """)
-        
+            SELECT 
+                DATE(created_at) as log_date,
+                SUM(calories) as total_cal,
+                SUM(carbs) as total_carb
+            FROM food_logs
+            WHERE user_id = :user_id
+            GROUP BY DATE(created_at)
+            ORDER BY log_date DESC
+        """)
         daily_result = db.execute(daily_nutrition_query, {"user_id": u.id}).mappings().all()
         daily_nutrition_list = [
             {
@@ -168,46 +165,42 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
             for row in daily_result
         ]
 
-        # ✅ ดึงประวัติอาหารรายมื้อ
+        # ── ประวัติอาหารรายมื้อ ──
         food_logs_query = text("""
-    SELECT id, food_name, calories, carbs, protein, created_at
-    FROM food_logs 
-    WHERE user_id = :user_id 
-    ORDER BY created_at DESC
-    LIMIT 50
-""")
-        
+            SELECT id, food_name, calories, carbs, protein, created_at
+            FROM food_logs 
+            WHERE user_id = :user_id 
+            ORDER BY created_at DESC
+            LIMIT 50
+        """)
         food_logs_result = db.execute(food_logs_query, {"user_id": u.id}).mappings().all()
         food_logs_list = [
-    {
-        "id": row["id"],
-        "foodName": row["food_name"],
-        "calories": float(row["calories"] or 0),
-        "carbs": float(row["carbs"] or 0),
-        "protein": float(row["protein"] or 0),
-        "createdAt": row["created_at"].isoformat() if row["created_at"] else None
-    }
-    for row in food_logs_result
-]
-            
-        # ✅ ดึงข้อมูลสุขภาพ (Health Records)
-        daily_nutrition_query = text("""
-    SELECT 
-        DATE(created_at) as log_date,
-        SUM(calories) as total_cal,
-        SUM(carbs) as total_carb
-    FROM food_logs
-    WHERE user_id = :user_id
-    GROUP BY DATE(created_at)
-    ORDER BY log_date DESC
-    LIMIT 30
-""")
+            {
+                "id": row["id"],
+                "foodName": row["food_name"],
+                "calories": float(row["calories"] or 0),
+                "carbs": float(row["carbs"] or 0),
+                "protein": float(row["protein"] or 0),
+                "createdAt": row["created_at"].isoformat() if row["created_at"] else None
+            }
+            for row in food_logs_result
+        ]
+
+        # ── Health Records ── ✅ แก้ตรงนี้
+        health_records_query = text("""
+            SELECT 
+                id, systolic, diastolic, pulse, recommendation, created_at
+            FROM health_records
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT 30
+        """)
         hr_result = db.execute(health_records_query, {"user_id": u.id}).mappings().all()
         health_records_list = [
             {
                 "id": hr["id"],
                 "bloodPressure": hr["systolic"],
-                "bloodSugar": None,  # ✅ กำหนดเป็น None เพื่อให้หน้าบ้านไม่ Error แต่ไม่ต้องเก็บค่า
+                "bloodSugar": None,
                 "systolic": hr["systolic"],
                 "diastolic": hr["diastolic"],
                 "pulse": hr["pulse"],
@@ -217,14 +210,12 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
             for hr in hr_result
         ]
 
-        # ✅ ดึงข้อมูลการแพ้อาหาร (Allergies)
+        # ── Allergies ──
         allergies_list = []
         health_info_val = getattr(u, "healthInfo", getattr(u, "health_info", None))
-        
         if health_info_val:
             allergies_list = [item.strip() for item in health_info_val.split(",") if item.strip()]
 
-        # ✅ ประกอบผลลัพธ์ส่งกลับหน้าบ้าน
         results.append({
             "userId": u.id,
             "firstName": getattr(u, "firstName", getattr(u, "first_name", None)),
@@ -232,12 +223,12 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
             "heightCm": height,
             "weightKg": weight,
             "bmi": bmi,
-            "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)), 
+            "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)),
             "targetCarbs": getattr(u, "target_carbs", getattr(u, "targetCarbs", None)),
             "dailyNutrition": daily_nutrition_list,
-            "foodLogs": food_logs_list, 
+            "foodLogs": food_logs_list,
             "healthRecords": health_records_list,
-            "allergies": allergies_list, 
+            "allergies": allergies_list,
         })
         
     return results
