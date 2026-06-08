@@ -71,7 +71,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
     # ✅ แก้ไขบั๊กตรวจสอบข้อมูลซ้ำ: แยกเช็ค Email เฉพาะคนที่มีค่าจริง เพื่อไม่ให้บล็อกคนไม่มีอีเมล
     conditions = [
-        models.User.username == username_clean,
+        func.lower(models.User.username) == username_clean.lower(),
         models.User.citizen_id == citizen_digits
     ]
     if email_clean:
@@ -80,7 +80,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # ✅ แก้ไข: เช็ค case-sensitive สำหรับ username เพื่อให้ User1 และ user1 เป็นคนละ username
     existing = db.query(models.User).filter(or_(*conditions)).first()
     if existing:
-        if existing.username == username_clean:
+        if existing.username.lower() == username_clean.lower():
             raise HTTPException(status_code=400, detail="Email, Username หรือเลขบัตรประชาชนถูกใช้แล้ว")
         elif existing.citizen_id == citizen_digits:
             raise HTTPException(status_code=400, detail="Email, Username หรือเลขบัตรประชาชนถูกใช้แล้ว")
@@ -476,17 +476,15 @@ def check_username(
     username_clean = username.strip()
 
     def make_filters(model, username_field):
-        filters = [
-            username_field == username_clean,
-            func.concat(model.org_code, username_field) == username_clean,
+     filters = [
+        func.lower(username_field) == username_clean.lower(),
+    ]
+    if org_code:
+        combined = f"{org_code.strip()}{username_clean.lower()}"
+        filters += [
+            func.lower(username_field) == combined,
         ]
-        if org_code:
-            combined = f"{org_code.strip()}{username_clean}"
-            filters += [
-                username_field == combined,
-                func.concat(model.org_code, username_field) == combined,
-            ]
-        return filters
+    return filters
 
     if db.query(models.Admin).filter(or_(*make_filters(models.Admin, models.Admin.username))).first():
         return {"is_available": False, "detail": "Username นี้ถูกใช้งานแล้วในระบบผู้ดูแลระบบ (Admin)"}
@@ -494,7 +492,7 @@ def check_username(
     if db.query(models.Doctors).filter(or_(*make_filters(models.Doctors, models.Doctors.username))).first():
         return {"is_available": False, "detail": "Username นี้ถูกใช้งานแล้วในระบบบัญชีแพทย์ (Doctors)"}
 
-    if db.query(models.User).filter(models.User.username == username_clean).first():
+    if db.query(models.User).filter(func.lower(models.User.username) == username_clean.lower()).first():
         return {"is_available": False, "detail": "Username นี้ถูกใช้งานแล้วในระบบผู้ใช้งาน"}
 
     return {"is_available": True, "detail": "Username นี้สามารถใช้งานได้"}

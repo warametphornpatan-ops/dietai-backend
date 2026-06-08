@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, text
+from sqlalchemy import or_, text,func
 from pydantic import BaseModel
 from typing import Optional
 from ..database import get_db
@@ -41,7 +41,7 @@ router = APIRouter(
 @router.post("/login")
 def login_doctor(payload: DoctorLoginReq, db: Session = Depends(get_db)) -> Dict[str, str]:
     # ดึงข้อมูลแพทย์จากฐานข้อมูลด้วย username
-    doctor = db.query(models.Doctors).filter(models.Doctors.username == payload.username).first()
+    doctor = db.query(models.Doctors).filter(func.lower(models.Doctors.username) == payload.username.strip().lower()).first()
     
     if not doctor:
         raise HTTPException(status_code=401, detail="ไม่พบชื่อผู้ใช้นี้")
