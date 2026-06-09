@@ -320,13 +320,7 @@ def search_food_by_name(name: str, db: Session = Depends(get_db)):
         for r in result
     ]
 
-    @router.get("/by-bmi-group")
-    def get_menus_by_bmi_group(group: str, db: Session = Depends(get_db)):
-        result = db.execute(
-        text("SELECT menu_id FROM bmi_menu_groups WHERE bmi_group = :group"),
-        {"group": group}
-    ).mappings().all()
-    return [{"menu_id": r["menu_id"]} for r in result]
+    
 
 @router.post("/FoodUploadModel")
 async def upload_food_image(
