@@ -142,7 +142,6 @@ class AdminCreate(BaseModel):
     last_name: str
     email: EmailStr
     username: str
-    password: str
     role: Literal["admin"] = "admin"
 
 

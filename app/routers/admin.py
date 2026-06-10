@@ -32,7 +32,11 @@ class DoctorUpdate(BaseModel):
     username: str
     email: str
     citizen_id: Optional[str] = None
-    position: Optional[str] = None  # ✅ เพิ่ม position ใน DoctorUpdate ด้วย
+    position: Optional[str] = None
+
+class SyncPasswordReq(BaseModel):
+    email: str
+    new_password: str
 
 
 # --- 1. ตรวจสอบ Username ซ้ำ (Case-Insensitive ทั่วทั้งระบบ) ---
@@ -53,7 +57,7 @@ def check_username_global(
     return {"is_available": True, "detail": "Username นี้สามารถใช้งานได้"}
 
 
-# --- 2. API ลงทะเบียนผู้ดูแลระบบ (Case-Insensitive) ---
+# --- 2. API ลงทะเบียนผู้ดูแลระบบ ---
 @router.post("/register")
 def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)) -> Dict[str, str]:
     admin_username = payload.username.strip()
@@ -78,25 +82,58 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)) 
     if existing_doctor_user:
         raise HTTPException(status_code=400, detail="ชื่อผู้ใช้นี้ถูกใช้งานแล้วในระบบบัญชีแพทย์ผู้ใช้งาน")
 
-    hashed_pwd = bcrypt_sha256.hash(payload.password)
+    # ✅ ส่ง invite email แทน hash password
+    try:
+        supabase.auth.admin.invite_user_by_email(
+            payload.email.strip(),
+            options={"redirectTo": "https://dietai-admin.vercel.app/set-password"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"ส่งอีเมลคำเชิญไม่สำเร็จ: {str(e)}")
 
     new_admin = models.Admin(
         org_code=payload.org_code,
         citizen_id=payload.citizen_id,
         first_name=payload.first_name,
         last_name=payload.last_name,
-        email=payload.email,
+        email=payload.email.strip(),
         username=admin_username,
-        password_hash=hashed_pwd
+        password_hash="INVITED_BUT_NOT_SET"
     )
 
     db.add(new_admin)
     db.commit()
 
-    return {"message": "ลงทะเบียนผู้ดูแลระบบสำเร็จ!"}
+    return {"message": "เพิ่มผู้ดูแลระบบและส่งอีเมลคำเชิญเรียบร้อยแล้ว"}
 
 
-# --- 3. ดึงรายชื่อแพทย์ทั้งหมด ---
+# --- 3. ดึงรายชื่อแอดมินในหน่วยงาน ---
+@router.get("/list")
+def get_admins(
+    org_code: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+) -> Dict[str, List[Dict[str, str]]]:
+    query = db.query(models.Admin)
+    if org_code:
+        query = query.filter(models.Admin.org_code == org_code)
+
+    admins = query.all()
+    result: List[Dict[str, str]] = []
+    for a in admins:
+        result.append({
+            "id": str(a.admin_id),
+            "org_code": a.org_code,
+            "first_name": a.first_name,
+            "last_name": a.last_name,
+            "username": a.username,
+            "email": a.email or "",
+            "position": "ผู้ดูแลระบบ",
+            "role": "admin"
+        })
+    return {"admins": result}
+
+
+# --- 4. ดึงรายชื่อแพทย์ทั้งหมด ---
 @router.get("/doctors")
 def get_doctors(org_code: Optional[str] = Query(None), db: Session = Depends(get_db)) -> Dict[str, List[Dict[str, str]]]:
     query = db.query(models.Doctors)
@@ -111,14 +148,14 @@ def get_doctors(org_code: Optional[str] = Query(None), db: Session = Depends(get
             "org_code": doc.org_code,
             "first_name": doc.first_name,
             "last_name": doc.last_name,
-            "position": doc.position or "",  # ✅ ส่ง position กลับไปด้วย
+            "position": doc.position or "",
             "username": doc.username,
-            "email": doc.email
+            "email": doc.email or ""
         })
     return {"doctors": result}
 
 
-# --- 4. ✅ API ลงทะเบียนบุคลากรทางการแพทย์ (Hash password เอง ไม่ส่ง invite email แล้ว) ---
+# --- 5. API ลงทะเบียนบุคลากรทางการแพทย์ ---
 @router.post("/doctors")
 def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> Dict[str, str]:
     username_clean = payload.username.strip()
@@ -126,7 +163,6 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
     email_clean = payload.email.strip()
     email_lower = email_clean.lower()
 
-    # ตรวจซ้ำในตาราง doctors
     doc_exists = db.query(models.Doctors).filter(
         or_(
             func.lower(models.Doctors.username) == username_lower,
@@ -136,7 +172,6 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
     if doc_exists:
         raise HTTPException(status_code=400, detail="Username หรือ อีเมลนี้ ถูกใช้งานโดยบุคลากรท่านอื่นในระบบแล้ว")
 
-    # ตรวจซ้ำในตาราง admins
     admin_exists = db.query(models.Admin).filter(
         or_(
             func.lower(models.Admin.username) == username_lower,
@@ -146,7 +181,6 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
     if admin_exists:
         raise HTTPException(status_code=400, detail="Username หรือ อีเมลนี้ ซ้ำกับระบบผู้ดูแลระบบ ไม่สามารถใช้งานได้")
 
-    # ✅ Hash password เอง
     hashed_pwd = bcrypt_sha256.hash(payload.password)
 
     new_doctor = models.Doctors(
@@ -154,17 +188,17 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
         citizen_id=payload.citizen_id,
         first_name=payload.first_name,
         last_name=payload.last_name,
-        position=payload.position,      # ✅ บันทึก position
+        position=payload.position,
         username=username_clean,
         email=email_clean,
-        password_hash=hashed_pwd,       # ✅ บันทึก password จริง
+        password_hash=hashed_pwd,
     )
     db.add(new_doctor)
     db.commit()
     return {"message": "ลงทะเบียนบุคลากรทางการแพทย์สำเร็จ"}
 
 
-# --- 5. API แก้ไขข้อมูลแพทย์ ---
+# --- 6. API แก้ไขข้อมูลแพทย์ ---
 @router.put("/doctors/{doctor_id}")
 def update_doctor(doctor_id: str, payload: DoctorUpdate, db: Session = Depends(get_db)) -> Dict[str, str]:
     doctor = db.query(models.Doctors).filter(models.Doctors.id == doctor_id).first()
@@ -199,14 +233,14 @@ def update_doctor(doctor_id: str, payload: DoctorUpdate, db: Session = Depends(g
     if payload.citizen_id:
         doctor.citizen_id = payload.citizen_id
 
-    if payload.position is not None:  # ✅ อัปเดต position ด้วย
+    if payload.position is not None:
         doctor.position = payload.position
 
     db.commit()
     return {"message": "อัปเดตข้อมูลแพทย์สำเร็จ"}
 
 
-# --- 6. API ลบแพทย์ ---
+# --- 7. API ลบแพทย์ ---
 @router.delete("/doctors/{doctor_id}")
 def delete_doctor(doctor_id: str, db: Session = Depends(get_db)) -> Dict[str, str]:
     doctor = db.query(models.Doctors).filter(models.Doctors.id == doctor_id).first()
@@ -225,12 +259,11 @@ def delete_doctor(doctor_id: str, db: Session = Depends(get_db)) -> Dict[str, st
     return {"message": "ลบข้อมูลสำเร็จ"}
 
 
-# --- 7. API ล็อกอินรวม ---
+# --- 8. API ล็อกอินรวม ---
 @router.post("/login")
 def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, str]:
     input_username: str = payload.username.strip().lower()
 
-    # 1. ตรวจสอบฝั่ง Admin
     admin = db.query(models.Admin).filter(
         func.lower(models.Admin.username) == input_username
     ).first()
@@ -256,7 +289,6 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
         )
         return {"access_token": access_token, "token_type": "bearer", "role": "admin"}
 
-    # 2. ตรวจสอบฝั่ง Doctors
     doctor = db.query(models.Doctors).filter(
         or_(
             func.lower(models.Doctors.username) == input_username,
@@ -265,7 +297,6 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
     ).first()
 
     if doctor:
-        # 2.1: ตรวจสอบผ่าน DB หลัก (password_hash จริง)
         if hasattr(doctor, 'password_hash') and doctor.password_hash and doctor.password_hash != "INVITED_BUT_NOT_SET":
             if bcrypt_sha256.verify(payload.password, doctor.password_hash):
                 access_token = create_access_token(
@@ -279,7 +310,6 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
                 )
                 return {"access_token": access_token, "token_type": "bearer", "role": "doctor"}
 
-        # 2.2: fallback ตรวจสอบผ่าน Supabase Auth (สำหรับ record เก่าที่ยัง INVITED_BUT_NOT_SET)
         try:
             supabase_auth = supabase.auth.sign_in_with_password({
                 "email": doctor.email,
@@ -302,7 +332,7 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
     raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
 
-# --- 8. API ตรวจสอบ Username (Admin) ---
+# --- 9. API ตรวจสอบ Username (Admin) ---
 @router.get("/check-username")
 def check_admin_username(username: str, db: Session = Depends(get_db)) -> Dict[str, bool]:
     username_clean = username.strip().lower()
@@ -319,6 +349,7 @@ def check_admin_username(username: str, db: Session = Depends(get_db)) -> Dict[s
     return {"is_available": is_available}
 
 
+# --- 10. API ตรวจสอบ Email ---
 @router.get("/check-email")
 def check_admin_email(email: str, db: Session = Depends(get_db)) -> Dict[str, bool]:
     em = email.strip().lower()
@@ -333,3 +364,21 @@ def check_admin_email(email: str, db: Session = Depends(get_db)) -> Dict[str, bo
 
     is_available = existing_admin is None and existing_doctor is None
     return {"is_available": is_available}
+
+
+# --- 11. ✅ API sync-password สำหรับแอดมิน ---
+@router.patch("/sync-password")
+def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db)):
+    admin = db.query(models.Admin).filter(
+        func.lower(models.Admin.email) == payload.email.strip().lower()
+    ).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแอดมินที่มีอีเมลนี้")
+
+    admin.password_hash = bcrypt_sha256.hash(payload.new_password)
+    try:
+        db.commit()
+        return {"status": "success", "message": "บันทึกรหัสผ่านสำเร็จ"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
