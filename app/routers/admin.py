@@ -11,7 +11,6 @@ from .. import models
 from .. import schemas
 from app.security import create_access_token
 
-# เปิดใช้งาน Supabase Client สำหรับฝั่ง Backend
 from supabase import create_client, Client
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -31,8 +30,9 @@ class DoctorUpdate(BaseModel):
     first_name: str
     last_name: str
     username: str
-    email: str 
+    email: str
     citizen_id: Optional[str] = None
+    position: Optional[str] = None  # ✅ เพิ่ม position ใน DoctorUpdate ด้วย
 
 
 # --- 1. ตรวจสอบ Username ซ้ำ (Case-Insensitive ทั่วทั้งระบบ) ---
@@ -44,11 +44,9 @@ def check_username_global(
 ) -> Dict[str, object]:
     username_clean = username.strip().lower()
 
-    # ตรวจสอบในตารางแอดมิน
     if db.query(models.Admin).filter(func.lower(models.Admin.username) == username_clean).first():
         return {"is_available": False, "detail": "Username นี้ถูกใช้งานแล้วในระบบผู้ดูแลระบบ (Admin)"}
 
-    # ตรวจสอบในตารางแพทย์
     if db.query(models.Doctors).filter(func.lower(models.Doctors.username) == username_clean).first():
         return {"is_available": False, "detail": "Username นี้ถูกใช้งานแล้วในระบบบัญชีแพทย์ (Doctors)"}
 
@@ -76,7 +74,7 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)) 
     existing_doctor_user = db.query(models.Doctors).filter(
         func.lower(models.Doctors.username) == admin_username_lower
     ).first()
-    
+
     if existing_doctor_user:
         raise HTTPException(status_code=400, detail="ชื่อผู้ใช้นี้ถูกใช้งานแล้วในระบบบัญชีแพทย์ผู้ใช้งาน")
 
@@ -88,13 +86,13 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)) 
         first_name=payload.first_name,
         last_name=payload.last_name,
         email=payload.email,
-        username=admin_username,  # บันทึกตามที่ส่งมา แต่เวลาค้นหาจะใช้ lower()
+        username=admin_username,
         password_hash=hashed_pwd
     )
 
     db.add(new_admin)
     db.commit()
-    
+
     return {"message": "ลงทะเบียนผู้ดูแลระบบสำเร็จ!"}
 
 
@@ -104,29 +102,31 @@ def get_doctors(org_code: Optional[str] = Query(None), db: Session = Depends(get
     query = db.query(models.Doctors)
     if org_code:
         query = query.filter(models.Doctors.org_code == org_code)
-        
+
     doctors = query.all()
     result: List[Dict[str, str]] = []
     for doc in doctors:
         result.append({
-            "doctor_id": str(doc.id), 
+            "doctor_id": str(doc.id),
             "org_code": doc.org_code,
             "first_name": doc.first_name,
             "last_name": doc.last_name,
+            "position": doc.position or "",  # ✅ ส่ง position กลับไปด้วย
             "username": doc.username,
             "email": doc.email
         })
     return {"doctors": result}
 
 
-# --- 4. API เพิ่มแพทย์ + ส่งอีเมลคำเชิญไปยังหน้าเว็บใหม่ ---
+# --- 4. ✅ API ลงทะเบียนบุคลากรทางการแพทย์ (Hash password เอง ไม่ส่ง invite email แล้ว) ---
 @router.post("/doctors")
 def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> Dict[str, str]:
     username_clean = payload.username.strip()
     username_lower = username_clean.lower()
     email_clean = payload.email.strip()
     email_lower = email_clean.lower()
-    
+
+    # ตรวจซ้ำในตาราง doctors
     doc_exists = db.query(models.Doctors).filter(
         or_(
             func.lower(models.Doctors.username) == username_lower,
@@ -134,8 +134,9 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
         )
     ).first()
     if doc_exists:
-        raise HTTPException(status_code=400, detail="Username หรือ อีเมลนี้ ถูกใช้งานโดยแพทย์ท่านอื่นในระบบแล้ว")
+        raise HTTPException(status_code=400, detail="Username หรือ อีเมลนี้ ถูกใช้งานโดยบุคลากรท่านอื่นในระบบแล้ว")
 
+    # ตรวจซ้ำในตาราง admins
     admin_exists = db.query(models.Admin).filter(
         or_(
             func.lower(models.Admin.username) == username_lower,
@@ -144,31 +145,23 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
     ).first()
     if admin_exists:
         raise HTTPException(status_code=400, detail="Username หรือ อีเมลนี้ ซ้ำกับระบบผู้ดูแลระบบ ไม่สามารถใช้งานได้")
-    
-    try:
-        redirect_to_url = "https://dietai-admin.vercel.app/set-password" 
-        
-        supabase.auth.admin.invite_user_by_email(
-            email_clean,
-            options={
-                "redirectTo": redirect_to_url,
-            }
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"เกิดข้อผิดพลาดในการส่งอีเมลคำเชิญผ่าน Supabase: {str(e)}")
+
+    # ✅ Hash password เอง
+    hashed_pwd = bcrypt_sha256.hash(payload.password)
 
     new_doctor = models.Doctors(
         org_code=payload.org_code,
+        citizen_id=payload.citizen_id,
         first_name=payload.first_name,
         last_name=payload.last_name,
-        citizen_id=payload.citizen_id, 
+        position=payload.position,      # ✅ บันทึก position
         username=username_clean,
         email=email_clean,
-        password_hash="INVITED_BUT_NOT_SET"
+        password_hash=hashed_pwd,       # ✅ บันทึก password จริง
     )
     db.add(new_doctor)
     db.commit()
-    return {"message": "เพิ่มข้อมูลแพทย์และระบบได้จัดส่งอีเมลเชิญสำหรับตั้งรหัสผ่านเรียบร้อยแล้ว"}
+    return {"message": "ลงทะเบียนบุคลากรทางการแพทย์สำเร็จ"}
 
 
 # --- 5. API แก้ไขข้อมูลแพทย์ ---
@@ -180,7 +173,7 @@ def update_doctor(doctor_id: str, payload: DoctorUpdate, db: Session = Depends(g
 
     username_clean = payload.username.strip()
     username_lower = username_clean.lower()
-    
+
     if username_lower != doctor.username.lower():
         doc_exists = db.query(models.Doctors).filter(
             models.Doctors.id != doctor_id,
@@ -188,7 +181,7 @@ def update_doctor(doctor_id: str, payload: DoctorUpdate, db: Session = Depends(g
         ).first()
         if doc_exists:
             raise HTTPException(status_code=400, detail="Username นี้ถูกใช้งานโดยแพทย์ท่านอื่นในระบบแล้ว")
-            
+
         admin_exists = db.query(models.Admin).filter(
             func.lower(models.Admin.username) == username_lower
         ).first()
@@ -199,12 +192,15 @@ def update_doctor(doctor_id: str, payload: DoctorUpdate, db: Session = Depends(g
     doctor.first_name = payload.first_name
     doctor.last_name = payload.last_name
     doctor.username = username_clean
-    
+
     if payload.email is not None:
         doctor.email = payload.email
 
     if payload.citizen_id:
         doctor.citizen_id = payload.citizen_id
+
+    if payload.position is not None:  # ✅ อัปเดต position ด้วย
+        doctor.position = payload.position
 
     db.commit()
     return {"message": "อัปเดตข้อมูลแพทย์สำเร็จ"}
@@ -216,25 +212,25 @@ def delete_doctor(doctor_id: str, db: Session = Depends(get_db)) -> Dict[str, st
     doctor = db.query(models.Doctors).filter(models.Doctors.id == doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแพทย์")
-    
+
     try:
         db.delete(doctor)
         db.commit()
     except Exception:
         db.rollback()
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="ไม่สามารถลบข้อมูลแพทย์ได้เนื่องจากมีข้อมูลอื่นอ้างอิงอยู่ แนะนำให้ทำ Soft Delete แทน"
         )
     return {"message": "ลบข้อมูลสำเร็จ"}
 
 
-# --- 7. API ล็อกอินรวม (แก้ไขสมบูรณ์ - เรียงลำดับขั้นตอน Flow ถูกต้อง) ---
+# --- 7. API ล็อกอินรวม ---
 @router.post("/login")
 def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, str]:
     input_username: str = payload.username.strip().lower()
 
-    # 1. ตรวจสอบสิทธิ์ฝั่งผู้ดูแลระบบ (Admin) ค้นหาแบบ Case-Insensitive
+    # 1. ตรวจสอบฝั่ง Admin
     admin = db.query(models.Admin).filter(
         func.lower(models.Admin.username) == input_username
     ).first()
@@ -242,16 +238,16 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
     if admin:
         if not bcrypt_sha256.verify(payload.password, admin.password_hash):
             raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านผู้ดูแลระบบไม่ถูกต้อง")
-        
+
         clean_payload_org: str = "".join(filter(str.isdigit, payload.org_code.strip()))
         clean_admin_org: str = "".join(filter(str.isdigit, admin.org_code.strip() if admin.org_code else ""))
 
         if clean_admin_org != clean_payload_org:
             raise HTTPException(status_code=401, detail="รหัสหน่วยงานไม่ตรงกับสิทธิ์การเข้าใช้งานของผู้ดูแลระบบนี้")
-        
+
         access_token: str = create_access_token(
             data={
-                "sub": str(admin.admin_id), 
+                "sub": str(admin.admin_id),
                 "role": "admin",
                 "org_code": admin.org_code,
                 "first_name": admin.first_name,
@@ -259,8 +255,8 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
             }
         )
         return {"access_token": access_token, "token_type": "bearer", "role": "admin"}
-        
-    # 2. ตรวจสอบฝั่งแพทย์ (Doctors) ต่อเนื่อง ค้นหาแบบ Case-Insensitive
+
+    # 2. ตรวจสอบฝั่ง Doctors
     doctor = db.query(models.Doctors).filter(
         or_(
             func.lower(models.Doctors.username) == input_username,
@@ -269,12 +265,12 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
     ).first()
 
     if doctor:
-        # เคสที่ 2.1: ตรวจสอบผ่านระบบตาราง DB ภายในหลัก
+        # 2.1: ตรวจสอบผ่าน DB หลัก (password_hash จริง)
         if hasattr(doctor, 'password_hash') and doctor.password_hash and doctor.password_hash != "INVITED_BUT_NOT_SET":
             if bcrypt_sha256.verify(payload.password, doctor.password_hash):
                 access_token = create_access_token(
                     data={
-                        "sub": str(doctor.id), 
+                        "sub": str(doctor.id),
                         "role": "doctor",
                         "org_code": doctor.org_code,
                         "first_name": doctor.first_name,
@@ -282,17 +278,17 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
                     }
                 )
                 return {"access_token": access_token, "token_type": "bearer", "role": "doctor"}
-        
-        # เคสที่ 2.2: ตรวจสอบสิทธิ์ผ่าน Supabase Auth ตรง ๆ
+
+        # 2.2: fallback ตรวจสอบผ่าน Supabase Auth (สำหรับ record เก่าที่ยัง INVITED_BUT_NOT_SET)
         try:
             supabase_auth = supabase.auth.sign_in_with_password({
-                "email": doctor.email, 
+                "email": doctor.email,
                 "password": payload.password
             })
             if supabase_auth.user:
                 access_token = create_access_token(
                     data={
-                        "sub": str(doctor.id), 
+                        "sub": str(doctor.id),
                         "role": "doctor",
                         "org_code": doctor.org_code,
                         "first_name": doctor.first_name,
@@ -303,23 +299,22 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
         except Exception:
             pass
 
-    # หากเช็กครบทั้งสองฝั่งแล้วไม่เข้าเงื่อนไขใดเลย
     raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
 
-# --- 8. API ตรวจสอบความพร้อมใช้งานทั่วไป (แยกฟังก์ชันออกมาให้ถูกต้อง) ---
+# --- 8. API ตรวจสอบ Username (Admin) ---
 @router.get("/check-username")
 def check_admin_username(username: str, db: Session = Depends(get_db)) -> Dict[str, bool]:
     username_clean = username.strip().lower()
-    
+
     existing = db.query(models.Admin).filter(
         func.lower(models.Admin.username) == username_clean
     ).first()
-    
+
     existing_doctor = db.query(models.Doctors).filter(
         func.lower(models.Doctors.username) == username_clean
     ).first()
-    
+
     is_available = existing is None and existing_doctor is None
     return {"is_available": is_available}
 
@@ -327,14 +322,14 @@ def check_admin_username(username: str, db: Session = Depends(get_db)) -> Dict[s
 @router.get("/check-email")
 def check_admin_email(email: str, db: Session = Depends(get_db)) -> Dict[str, bool]:
     em = email.strip().lower()
- 
+
     existing_admin = db.query(models.Admin).filter(
         func.lower(models.Admin.email) == em
     ).first()
- 
+
     existing_doctor = db.query(models.Doctors).filter(
         func.lower(models.Doctors.email) == em
     ).first()
- 
+
     is_available = existing_admin is None and existing_doctor is None
     return {"is_available": is_available}

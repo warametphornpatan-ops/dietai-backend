@@ -46,6 +46,7 @@ class Doctors(Base):
     username = Column(String(50), nullable=False, unique=True)
     password_hash = Column(String(255), nullable=False)
     email = Column(String(100), nullable=True)
+    position = Column(String, nullable=True)
     
 class FoodLog(Base):
     __tablename__ = "food_logs"

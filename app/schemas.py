@@ -75,6 +75,8 @@ class DoctorCreate(BaseModel):
     username: str
     email: EmailStr
     role: Literal["doctor"] = "doctor"
+    password: str  
+    position: str
 
 
 # -----------------------------
