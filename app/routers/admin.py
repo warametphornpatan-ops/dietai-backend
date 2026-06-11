@@ -43,6 +43,7 @@ class AdminProfileUpdate(BaseModel):
     first_name: str
     last_name: str
     email: str
+    position: Optional[str] = None
 
 
 # --- 1. ตรวจสอบ Username ซ้ำ (Case-Insensitive ทั่วทั้งระบบ) ---
@@ -422,6 +423,8 @@ def update_admin_profile(
     admin.first_name = payload.first_name.strip()
     admin.last_name = payload.last_name.strip()
     admin.email = payload.email.strip()
+    if payload.position:
+        admin.position = payload.position.strip()
 
     try:
         db.commit()
