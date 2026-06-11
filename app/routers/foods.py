@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Date, text
@@ -275,6 +275,57 @@ def get_food_recommendations(
         "beverages": recommended_beverages
     }
 
+
+# ✅ เพิ่ม endpoint /foods ที่รองรับหลาย query parameter
+@router.get("/foods")
+def get_foods(
+    menuId: Optional[int] = Query(None),
+    category: Optional[str] = Query(None),
+    aiName: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    ดึงข้อมูลอาหารจากฐานข้อมูล สามารถค้นหาโดย:
+    - menuId: ค้นหาด้วย MenuID เฉพาะ (e.g., ?menuId=68)
+    - category: ค้นหาด้วย Category (e.g., ?category=ผลไม้)
+    - aiName: ค้นหาด้วย EnglishName (สำหรับ AI detection) (e.g., ?aiName=banana)
+    """
+    
+    base_query = """
+        SELECT "MenuID", "ThaiName", "EnglishName", "Calories", "Category",
+               "Nutrition"
+        FROM thai_foodmenu
+        WHERE 1=1
+    """
+    
+    params = {}
+    
+    # สร้าง WHERE clause แบบไดนามิก
+    if menuId is not None:
+        base_query += """ AND "MenuID" = :menuId"""
+        params["menuId"] = menuId
+    elif category is not None:
+        base_query += """ AND "Category" = :category"""
+        params["category"] = category
+    elif aiName is not None:
+        base_query += """ AND LOWER("EnglishName") LIKE LOWER(:aiName)"""
+        params["aiName"] = f"%{aiName}%"
+    
+    result = db.execute(text(base_query), params).mappings().all()
+    
+    return [
+        {
+            "MenuID": r["MenuID"],
+            "ThaiName": r["ThaiName"],
+            "EnglishName": r["EnglishName"],
+            "Calories": r["Calories"],
+            "Category": r["Category"],
+            "Nutrition": r["Nutrition"],
+        }
+        for r in result
+    ]
+
+
 @router.get("/by-category")
 def get_foods_by_category(category: str, db: Session = Depends(get_db)):
     result = db.execute(
@@ -294,6 +345,7 @@ def get_foods_by_category(category: str, db: Session = Depends(get_db)):
         }
         for r in result
     ]
+
 @router.get("/search")
 def search_food_by_name(name: str, db: Session = Depends(get_db)):
     result = db.execute(
