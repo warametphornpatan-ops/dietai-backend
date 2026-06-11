@@ -277,7 +277,7 @@ def get_food_recommendations(
 
 
 # ✅ เพิ่ม endpoint /foods ที่รองรับหลาย query parameter
-@router.get("/foods")
+@router.get("/")
 def get_foods(
     menuId: Optional[int] = Query(None),
     category: Optional[str] = Query(None),
