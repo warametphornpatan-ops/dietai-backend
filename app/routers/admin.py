@@ -9,7 +9,7 @@ import os
 from ..database import get_db
 from .. import models
 from .. import schemas
-from app.security import create_access_token
+from app.security import create_access_token, get_current_user
 
 from supabase import create_client, Client
 
