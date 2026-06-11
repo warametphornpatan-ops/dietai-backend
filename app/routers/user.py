@@ -196,7 +196,8 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginReq, db: Session = Depends(get_db)):
     if not request.username or len(request.username.strip()) < 3:
-        raise HTTPException(status_code=400, detail="Invalid username")
+        # ✅ แก้ไข: เปลี่ยนข้อความ error เป็นภาษาไทย
+        raise HTTPException(status_code=400, detail="ชื่อผู้ใช้ไม่ถูกต้อง")
 
     # แปลงค่าที่ผู้ใช้กรอกเข้ามาให้เป็นตัวพิมพ์เล็กทั้งหมด และตัดช่องว่าง
     username_clean = request.username.strip().lower()
@@ -218,7 +219,8 @@ async def login(request: LoginReq, db: Session = Depends(get_db)):
 
     stored_password = account.password if user else account.password_hash
     if not verify_password(request.password, stored_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        # ✅ แก้ไข: เปลี่ยนข้อความ error จาก "Invalid credentials" เป็นภาษาไทย
+        raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
     if user:
         account_id, role = user.id, user.role
@@ -475,16 +477,18 @@ def check_username(
 ):
     username_clean = username.strip()
 
+    # ✅ แก้ไข: จัด indentation ของฟังก์ชันให้ถูกต้อง
+    # เดิม `if org_code` กับ `return` อยู่นอกตัวฟังก์ชัน ทำให้ logic เพี้ยน
     def make_filters(model, username_field):
-     filters = [
-        func.lower(username_field) == username_clean.lower(),
-    ]
-    if org_code:
-        combined = f"{org_code.strip()}{username_clean.lower()}"
-        filters += [
-            func.lower(username_field) == combined,
+        filters = [
+            func.lower(username_field) == username_clean.lower(),
         ]
-    return filters
+        if org_code:
+            combined = f"{org_code.strip()}{username_clean.lower()}"
+            filters += [
+                func.lower(username_field) == combined,
+            ]
+        return filters
 
     if db.query(models.Admin).filter(or_(*make_filters(models.Admin, models.Admin.username))).first():
         return {"is_available": False, "detail": "Username นี้ถูกใช้งานแล้วในระบบผู้ดูแลระบบ (Admin)"}
