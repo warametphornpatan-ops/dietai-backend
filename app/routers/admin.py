@@ -38,6 +38,12 @@ class SyncPasswordReq(BaseModel):
     email: str
     new_password: str
 
+# ✅ Form สำหรับแก้ไข Admin Profile
+class AdminProfileUpdate(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+
 
 # --- 1. ตรวจสอบ Username ซ้ำ (Case-Insensitive ทั่วทั้งระบบ) ---
 @router.get("/doctors/check-username")
@@ -379,6 +385,59 @@ def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db))
     try:
         db.commit()
         return {"status": "success", "message": "บันทึกรหัสผ่านสำเร็จ"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
+
+
+# --- 12. ✅ API แก้ไขข้อมูล Admin (ตัวเอง) ---
+@router.patch("/{admin_id}")
+def update_admin_profile(
+    admin_id: str,
+    payload: AdminProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+) -> Dict[str, str]:
+    """แก้ไขข้อมูล admin ตัวเอง"""
+    
+    # ตรวจสอบว่าเป็นการแก้ไขข้อมูลตัวเอง
+    if str(current_user.id) != str(admin_id):
+        raise HTTPException(status_code=403, detail="คุณสามารถแก้ไขได้เฉพาะข้อมูลตัวเองเท่านั้น")
+    
+    admin = db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแอดมิน")
+
+    # ตรวจสอบอีเมลไม่ซ้ำ
+    email_lower = payload.email.strip().lower()
+    if email_lower != admin.email.lower():
+        existing_admin = db.query(models.Admin).filter(
+            models.Admin.admin_id != admin_id,
+            func.lower(models.Admin.email) == email_lower
+        ).first()
+        if existing_admin:
+            raise HTTPException(status_code=400, detail="อีเมลนี้ถูกใช้งานแล้ว")
+        
+        existing_doctor = db.query(models.Doctors).filter(
+            func.lower(models.Doctors.email) == email_lower
+        ).first()
+        if existing_doctor:
+            raise HTTPException(status_code=400, detail="อีเมลนี้ซ้ำกับระบบแพทย์")
+
+    admin.first_name = payload.first_name.strip()
+    admin.last_name = payload.last_name.strip()
+    admin.email = payload.email.strip()
+
+    try:
+        db.commit()
+        db.refresh(admin)
+        return {
+            "message": "แก้ไขข้อมูลสำเร็จ",
+            "admin_id": str(admin.admin_id),
+            "first_name": admin.first_name,
+            "last_name": admin.last_name,
+            "email": admin.email
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
