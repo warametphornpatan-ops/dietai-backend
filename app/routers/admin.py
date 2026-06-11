@@ -390,19 +390,14 @@ def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 
-# --- 12. ✅ API แก้ไขข้อมูล Admin (ตัวเอง) ---
-@router.patch("/{admin_id}")
+# --- 12. ✅ API แก้ไขข้อมูล Admin Profile (ตัวเอง) ---
+@router.patch("/profile/{admin_id}")
 def update_admin_profile(
     admin_id: str,
     payload: AdminProfileUpdate,
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ) -> Dict[str, str]:
     """แก้ไขข้อมูล admin ตัวเอง"""
-    
-    # ตรวจสอบว่าเป็นการแก้ไขข้อมูลตัวเอง
-    if str(current_user.id) != str(admin_id):
-        raise HTTPException(status_code=403, detail="คุณสามารถแก้ไขได้เฉพาะข้อมูลตัวเองเท่านั้น")
     
     admin = db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
     if not admin:
