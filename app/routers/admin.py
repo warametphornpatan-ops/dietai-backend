@@ -277,13 +277,13 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
 
     if admin:
         if not bcrypt_sha256.verify(payload.password, admin.password_hash):
-            raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านผู้ดูแลระบบไม่ถูกต้อง")
+            raise HTTPException(status_code=401, detail="❌ รหัสผ่านไม่ถูกต้อง")
 
         clean_payload_org: str = "".join(filter(str.isdigit, payload.org_code.strip()))
         clean_admin_org: str = "".join(filter(str.isdigit, admin.org_code.strip() if admin.org_code else ""))
 
         if clean_admin_org != clean_payload_org:
-            raise HTTPException(status_code=401, detail="รหัสหน่วยงานไม่ตรงกับสิทธิ์การเข้าใช้งานของผู้ดูแลระบบนี้")
+            raise HTTPException(status_code=401, detail="❌ รหัสหน่วยงานไม่ตรงกับสิทธิ์การเข้าใช้งาน")
 
         access_token: str = create_access_token(
             data={
@@ -312,10 +312,13 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
                         "role": "doctor",
                         "org_code": doctor.org_code,
                         "first_name": doctor.first_name,
-                        "last_name": doctor.last_name
+                        "last_name": doctor.last_name,
+                        "position": doctor.position,  # ✅ เพิ่ม position
                     }
                 )
                 return {"access_token": access_token, "token_type": "bearer", "role": "doctor"}
+            else:
+                raise HTTPException(status_code=401, detail="❌ รหัสผ่านไม่ถูกต้อง")
 
         try:
             supabase_auth = supabase.auth.sign_in_with_password({
@@ -329,14 +332,15 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
                         "role": "doctor",
                         "org_code": doctor.org_code,
                         "first_name": doctor.first_name,
-                        "last_name": doctor.last_name
+                        "last_name": doctor.last_name,
+                        "position": doctor.position,  # ✅ เพิ่ม position
                     }
                 )
                 return {"access_token": access_token, "token_type": "bearer", "role": "doctor"}
         except Exception:
-            pass
+            raise HTTPException(status_code=401, detail="❌ รหัสผ่านไม่ถูกต้อง")
 
-    raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+    raise HTTPException(status_code=401, detail="❌ ไม่พบชื่อผู้ใช้นี้ในระบบ")
 
 
 # --- 9. API ตรวจสอบ Username (Admin) ---
