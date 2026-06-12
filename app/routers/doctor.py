@@ -77,7 +77,8 @@ def login_doctor(payload: DoctorLoginReq, db: Session = Depends(get_db)) -> Dict
             "role": "doctor",
             "org_code": doctor.org_code,
             "first_name": doctor.first_name,
-            "last_name": doctor.last_name
+            "last_name": doctor.last_name,
+            "position": doctor.position,
         } 
     )
 
@@ -119,20 +120,24 @@ def sync_doctor_password(payload: SyncPasswordReq, db: Session = Depends(get_db)
 # ==========================================
 # 🌟 API ดึงข้อมูลคนไข้ (รวมประวัติโภชนาการและสุขภาพ)
 # ==========================================
-@router.get("/patients")
-def get_patients(name: str = "", db: Session = Depends(get_db)):
-    users = (
-        db.query(models.User)
-        .filter(
-            models.User.role == "user",
+    @router.get("/patients")
+    def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_db)):
+    # ✅ แก้ logic ค้นหา
+        query = db.query(models.User).filter(models.User.role == "user")
+
+    if citizenId:
+        query = query.filter(models.User.citizen_id.like(f"%{citizenId}%"))
+    elif name:
+        query = query.filter(
             or_(
-               models.User.firstName.like(f"%{name}%"),
-               models.User.lastName.like(f"%{name}%"),
+                models.User.firstName.like(f"%{name}%"),
+                models.User.lastName.like(f"%{name}%"),
             )
         )
-        .all()
-    )
+    else:
+        return []
 
+    users = query.all()
     results = []
 
     for u in users:
@@ -218,6 +223,7 @@ def get_patients(name: str = "", db: Session = Depends(get_db)):
 
         results.append({
             "userId": u.id,
+            "citizenId": getattr(u, "citizen_id", getattr(u, "citizenId", None)),
             "firstName": getattr(u, "firstName", getattr(u, "first_name", None)),
             "lastName": getattr(u, "lastName", getattr(u, "last_name", None)),
             "heightCm": height,
