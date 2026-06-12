@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, text,func
+from sqlalchemy import or_, text, func
 from pydantic import BaseModel
 from typing import Optional
 from ..database import get_db
@@ -120,13 +120,19 @@ def sync_doctor_password(payload: SyncPasswordReq, db: Session = Depends(get_db)
 # ==========================================
 # 🌟 API ดึงข้อมูลคนไข้ (รวมประวัติโภชนาการและสุขภาพ)
 # ==========================================
-    @router.get("/patients")
-    def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_db)):
-    # ✅ แก้ logic ค้นหา
-        query = db.query(models.User).filter(models.User.role == "user")
+@router.get("/patients")
+def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_db)):
+    # ✅ สร้าง query base ก่อน
+    query = db.query(models.User).filter(models.User.role == "user")
 
+    # ✅ แก้ logic ค้นหา — handle ทั้ง citizen_id และ citizenId
     if citizenId:
-        query = query.filter(models.User.citizen_id.like(f"%{citizenId}%"))
+        query = query.filter(
+            or_(
+                models.User.citizen_id.like(f"%{citizenId}%") if hasattr(models.User, 'citizen_id') else None,
+                models.User.citizenId.like(f"%{citizenId}%") if hasattr(models.User, 'citizenId') else None,
+            )
+        )
     elif name:
         query = query.filter(
             or_(
@@ -191,7 +197,7 @@ def sync_doctor_password(payload: SyncPasswordReq, db: Session = Depends(get_db)
             for row in food_logs_result
         ]
 
-        # ── Health Records ── ✅ แก้ตรงนี้
+        # ── Health Records ──
         health_records_query = text("""
             SELECT 
                 id, systolic, diastolic, pulse, recommendation, created_at
@@ -283,4 +289,3 @@ def get_organization_by_code(org_code: str, db: Session = Depends(get_db)):
         "code": org.code,
         "name": org.name  # 👈 ชื่อโรงพยาบาลที่จะไปแสดงบนหน้าจอ
     }
-    
