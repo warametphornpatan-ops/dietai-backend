@@ -443,3 +443,31 @@ def update_admin_profile(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
+    
+    # --- 13. ✅ API ลบแอดมิน ---
+@router.delete("/{admin_id}")
+def delete_admin(admin_id: str, db: Session = Depends(get_db)) -> Dict[str, str]:
+    admin = db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลผู้ดูแลระบบ")
+
+    # กันลบแอดมินคนสุดท้ายของหน่วยงาน (ไม่งั้นหน่วยงานจะไม่มีแอดมินเหลือ)
+    admin_count = db.query(models.Admin).filter(
+        models.Admin.org_code == admin.org_code
+    ).count()
+    if admin_count <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="ไม่สามารถลบได้ เนื่องจากเป็นผู้ดูแลระบบคนสุดท้ายของหน่วยงาน"
+        )
+
+    try:
+        db.delete(admin)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="ไม่สามารถลบผู้ดูแลระบบได้เนื่องจากมีข้อมูลอื่นอ้างอิงอยู่"
+        )
+    return {"message": "ลบแอดมินสำเร็จ"}
