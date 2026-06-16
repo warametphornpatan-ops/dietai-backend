@@ -12,22 +12,20 @@ class User(Base):
     email       = Column(String(191), unique=True, nullable=True)
     username    = Column(String(191), unique=True, nullable=False)
     password    = Column(String(255), nullable=False)
-
-
-    role        = Column(String(20), nullable=False, default="user")  # "user" หรือ "doctor"
+    role        = Column(String(20), nullable=False, default="user")
     citizen_id  = Column(String(13), unique=True, nullable=True)
 
-    firstName  = Column( String(191))
+    firstName  = Column(String(191))
     lastName   = Column(String(20))
-    birth_date = Column(Date, nullable=True) 
+    birth_date = Column(Date, nullable=True)  # ✅
     gender = Column(String(10), nullable=True)
-    height_cm   = Column("heightCm", Float)
-    weight_kg   = Column("weightKg", Float)
-    target_weight_kg = Column("targetWeightKg", Float)
-    activity_level   = Column("activityLevel", String(50))
+    heightCm   = Column(Float)  # ✅ เปลี่ยน
+    weightKg   = Column(Float)  # ✅ เปลี่ยน
+    targetWeightKg = Column(Float)  # ✅ เปลี่ยน
+    activityLevel   = Column(String(50))  # ✅ เปลี่ยน
     goal        = Column(String(100))
-    health_info = Column("healthInfo", Text)
-    created_at  = Column("createdAt", DateTime, server_default=func.now())
+    healthInfo = Column(Text)  # ✅ เปลี่ยน
+    createdAt  = Column(DateTime, server_default=func.now())  # ✅ เปลี่ยน
 
     target_calories = Column(Integer, default=0)
     target_carbs = Column(Integer, default=0)
