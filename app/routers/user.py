@@ -165,12 +165,12 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
         lastName=last_name_clean,
         gender=user.gender,
         birth_date=birth_date_val,  # ✅ เพิ่ม birth_date แทน age
-        height_cm=user.height_cm,
-        weight_kg=user.weight_kg,
-        target_weight_kg=user.target_weight_kg,
-        activity_level=user.activity_level,
+        heightCm=user.height_cm,
+        weightKg=user.weight_kg,
+        targetWeightKg=user.target_weight_kg,
+        activityLevel=user.activity_level,
         goal=user.goal,
-        health_info=user.health_info,
+        healthInfo=user.health_info,
         role="user",
         target_calories=cal_tdee,
         target_carbs=gram_carbs,
@@ -184,8 +184,9 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
-    except Exception:
+    except Exception as e:
         db.rollback()
+        print(f"[ERROR] Register failed: {e}")
         raise HTTPException(status_code=400, detail="Email, Username หรือเลขบัตรประชาชนถูกใช้แล้ว")
 
     # ---------------------------------------------------------
@@ -210,13 +211,10 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginReq, db: Session = Depends(get_db)):
     if not request.username or len(request.username.strip()) < 3:
-        # ✅ แก้ไข: เปลี่ยนข้อความ error เป็นภาษาไทย
         raise HTTPException(status_code=400, detail="ชื่อผู้ใช้ไม่ถูกต้อง")
 
-    # แปลงค่าที่ผู้ใช้กรอกเข้ามาให้เป็นตัวพิมพ์เล็กทั้งหมด และตัดช่องว่าง
     username_clean = request.username.strip().lower()
 
-    # ✅ ค้นหาด้วย func.lower() เพื่อให้เป็น Case-Insensitive ทั้ง 3 ตาราง
     user = db.query(models.User).filter(func.lower(models.User.username) == username_clean).first()
     
     admin = None
@@ -233,7 +231,6 @@ async def login(request: LoginReq, db: Session = Depends(get_db)):
 
     stored_password = account.password if user else account.password_hash
     if not verify_password(request.password, stored_password):
-        # ✅ แก้ไข: เปลี่ยนข้อความ error จาก "Invalid credentials" เป็นภาษาไทย
         raise HTTPException(status_code=401, detail="ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
     if user:
@@ -299,9 +296,9 @@ def me(current_user: models.User = Depends(get_current_user)):
         "target_protein":   current_user.target_protein,
         "target_fat":       current_user.target_fat,
         "birth_date":       current_user.birth_date,  # ✅ เปลี่ยนจาก age
-        "weight_kg":        current_user.weight_kg,
-        "height_cm":        current_user.height_cm,
-        "health_info":      current_user.health_info,
+        "weight_kg":        current_user.weightKg,
+        "height_cm":        current_user.heightCm,
+        "health_info":      current_user.healthInfo,
         "bmr":              current_user.bmr,
         "bmi":              current_user.bmi,
         "goal":             current_user.goal,
@@ -426,9 +423,9 @@ def update_user_profile(
     if payload.birth_date:
         current_user.birth_date = payload.birth_date
     
-    current_user.weight_kg   = payload.weight_kg
-    current_user.height_cm   = payload.height_cm
-    current_user.health_info = payload.health_info
+    current_user.weightKg   = payload.weight_kg
+    current_user.heightCm   = payload.height_cm
+    current_user.healthInfo = payload.health_info
 
     w = float(payload.weight_kg or 0)
     h = float(payload.height_cm or 0)
@@ -445,7 +442,7 @@ def update_user_profile(
     current_user.bmr = bmr
 
     multipliers = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "very_active": 1.9}
-    act_val = multipliers.get(str(getattr(current_user, "activity_level", "") or "").strip().lower(), 1.2)
+    act_val = multipliers.get(str(getattr(current_user, "activityLevel", "") or "").strip().lower(), 1.2)
     maintenance_tdee = round(bmr * act_val)
 
     goal_str = str(getattr(current_user, "goal", "") or "").strip().lower()
@@ -463,7 +460,6 @@ def update_user_profile(
     protein_gram = max((target_calories * protein_pct) / 4.0, w * 0.8)
     carbs_gram   = max(target_calories - (protein_gram * 4.0) - (fat_gram * 9.0), 0.0) / 4.0
 
-    # ✅ แก้ไข: แปลงผลปัดเศษสารอาหารให้เป็น Integer (int) เพื่อให้สอดรับกับฐานข้อมูลและโครงสร้าง Register ด้านบน
     current_user.target_calories = int(round(target_calories))
     current_user.target_carbs    = int(round(carbs_gram))
     current_user.target_protein  = int(round(protein_gram))
@@ -494,8 +490,6 @@ def check_username(
 ):
     username_clean = username.strip()
 
-    # ✅ แก้ไข: จัด indentation ของฟังก์ชันให้ถูกต้อง
-    # เดิม `if org_code` กับ `return` อยู่นอกตัวฟังก์ชัน ทำให้ logic เพี้ยน
     def make_filters(model, username_field):
         filters = [
             func.lower(username_field) == username_clean.lower(),
