@@ -10,20 +10,8 @@
 - หลักที่ 13: ตัวตรวจสอบ (Checksum)
 """
 
+
 def validate_thai_id(citizen_id: str) -> dict:
-    """
-    ตรวจสอบเลขบัตรประชาชนไทย
-    
-    Args:
-        citizen_id: เลขบัตรประชาชน (string, 13 หลัก)
-    
-    Returns:
-        {
-            "is_valid": bool,
-            "message": str,
-            "errors": list
-        }
-    """
     errors = []
     
     # 1. ตรวจสอบความยาว
@@ -43,36 +31,21 @@ def validate_thai_id(citizen_id: str) -> dict:
             "errors": ["not_numeric"]
         }
     
-    # 3. ตรวจสอบเดือน (หลักที่ 6-7)
-    month = int(citizen_id_clean[4:6])
-    if month < 1 or month > 12:
-        errors.append("invalid_month")
-    
-    # 4. ตรวจสอบวัน (หลักที่ 8-9)
-    day = int(citizen_id_clean[6:8])
-    if day < 1 or day > 31:
-        errors.append("invalid_day")
-    
-    # 5. ตรวจสอบ Checksum Digit
+    # 3. ตรวจสอบ Checksum Digit
     weights = [13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2]
-    total = 0
-    
-    for i in range(12):
-        total += int(citizen_id_clean[i]) * weights[i]
+    total = sum(int(citizen_id_clean[i]) * weights[i] for i in range(12))
     
     remainder = total % 11
-    check_digit = (11 - remainder) % 10  # ถ้า >= 10 ให้ใช้ 0
+    check_digit = (11 - remainder) % 10
     actual_check_digit = int(citizen_id_clean[12])
     
     if check_digit != actual_check_digit:
         errors.append("checksum_invalid")
     
-    # 6. ส่งผลลัพธ์
+    # 4. ส่งผลลัพธ์
     if errors:
         error_messages = {
-            "invalid_month": "เดือนไม่ถูกต้อง (1-12)",
-            "invalid_day": "วันไม่ถูกต้อง (1-31)",
-            "checksum_invalid": "เลขบัตรไม่ตรงกับตัวตรวจสอบ"
+            "checksum_invalid": "เลขบัตรไม่ถูกต้อง (ไม่ผ่านการตรวจสอบ Checksum)"
         }
         return {
             "is_valid": False,
