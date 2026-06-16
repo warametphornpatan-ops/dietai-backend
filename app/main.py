@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 import jwt
 import logging
+import os
 
 from app.database import get_db
 from .routers import (
@@ -39,26 +40,49 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
-# ===== CORS =====
-allowed_origins = list(getattr(settings, "allowed_origins", []) or [])
-for origin in ["http://localhost:3000", "http://127.0.0.1:3000"]:
-    if origin not in allowed_origins:
-        allowed_origins.append(origin)
+# ===== CORS ✅ สมบูรณ์ =====
+allowed_origins = [
+    # Development
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",  # Vite dev
+    "http://127.0.0.1:5173",
+    
+    # Production Frontend
+    "https://dietai-frontend.vercel.app",
+    "https://dietai-frontend-5tcrd7ufw-warametphornpatan-ops-projects.vercel.app",
+    "https://dietai-frontend-git-main-warametphornpatan-ops-projects.vercel.app",
+    
+    # Admin Frontend
+    "https://dietai-admin.vercel.app",
+]
+
+# ✅ เพิ่ม Environment variable สำหรับ dynamic origins
+extra_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+for origin in extra_origins:
+    if origin.strip() and origin.strip() not in allowed_origins:
+        allowed_origins.append(origin.strip())
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://dietai-frontend.vercel.app",
-        "https://dietai-frontend-5tcrd7ufw-warametphornpatan-ops-projects.vercel.app",
-        "https://dietai-frontend-git-main-warametphornpatan-ops-projects.vercel.app",
-        "https://dietai-admin.vercel.app",
-    ],
+    allow_origins=allowed_origins,  # ✅ Allow all configured origins
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # ✅ รวม OPTIONS สำหรับ preflight
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-CSRF-Token",
+        "Access-Control-Allow-Origin",
+    ],
+    max_age=3600,  # ✅ Cache preflight response 1 hour
 )
+
+# ✅ Log CORS config ตอน startup
+logger.info(f"CORS configured with origins: {allowed_origins}")
+
 #app.add_middleware(RateLimitMiddleware, requests_per_hour=settings.rate_limit_requests)
 #app.add_middleware(ErrorHandlingMiddleware)
 
@@ -70,6 +94,27 @@ async def add_security_headers(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
+
+
+# ===== Health Check =====
+@app.get("/health", tags=["Health"])
+def health_check(db: Session = Depends(get_db)):
+    """ตรวจสอบสถานะ API และ Database"""
+    try:
+        # Test database connection
+        db.execute(text("SELECT 1"))
+        return {
+            "status": "ok",
+            "message": "API and Database are healthy",
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "version": "1.0.0"
+        }, 500
 
 
 # ===== Routers =====
@@ -135,9 +180,6 @@ async def get_current_user_profile(
         "email":      result["email"],
         "username":   result["username"],
     }
-
-
-
 
 @app.get("/")
 def root():
