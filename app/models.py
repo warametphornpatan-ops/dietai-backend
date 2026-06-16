@@ -2,6 +2,7 @@
 from sqlalchemy import Column, String, Integer, Float, Text, DateTime, func, Boolean, ForeignKey
 from uuid import uuid4
 from .database import Base
+from sqlalchemy import Date
 
 
 class User(Base):
@@ -18,7 +19,7 @@ class User(Base):
 
     firstName  = Column( String(191))
     lastName   = Column(String(20))
-    age         = Column(Integer)
+    birth_date = Column(Date, nullable=True) 
     gender = Column(String(10), nullable=True)
     height_cm   = Column("heightCm", Float)
     weight_kg   = Column("weightKg", Float)
