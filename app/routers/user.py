@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text, func
 from pydantic import BaseModel
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date  # ✅ เพิ่ม date
 from ..database import get_db
 from .. import models, schemas
 from ..security import (
@@ -17,6 +17,18 @@ from ..security import (
 from ..models import RefreshToken
 
 router = APIRouter()
+
+
+# ✅ เพิ่ม: Function คำนวณอายุจาก birth_date
+def calculate_age(birth_date: date) -> int:
+    """คำนวณอายุจากวันเดือนปีเกิด"""
+    if not birth_date:
+        return 0
+    today = datetime.now(timezone.utc).date()
+    age = today.year - birth_date.year
+    if (today.month, today.day) < (birth_date.month, birth_date.day):
+        age -= 1
+    return max(0, age)
 
 
 # ---------- Schemas ----------
@@ -40,8 +52,9 @@ class UserTargetReq(BaseModel):
     target_fat: int
 
 
+# ✅ แก้: age → birth_date
 class UserProfileUpdateReq(BaseModel):
-    age: int
+    birth_date: Optional[date] = None  # ← เปลี่ยน
     weight_kg: float
     height_cm: float
     health_info: Optional[str] = None
@@ -68,6 +81,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     email_clean = user.email.strip() if user.email and user.email.strip() else None
     first_name_clean = user.firstName.strip() if user.firstName else None
     last_name_clean = user.lastName.strip() if user.lastName else None
+    birth_date_val = user.birth_date  # ✅ เพิ่ม
 
     # ✅ แก้ไขบั๊กตรวจสอบข้อมูลซ้ำ: แยกเช็ค Email เฉพาะคนที่มีค่าจริง เพื่อไม่ให้บล็อกคนไม่มีอีเมล
     conditions = [
@@ -89,10 +103,10 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
 
     hashed_password = hash_password(user.password)
 
-    # คำนวณ BMI
+    # ✅ แก้: คำนวณอายุจาก birth_date แทน age
     w = float(user.weight_kg or 0)
     h = float(user.height_cm or 0)
-    a = float(user.age or 0)
+    a = float(calculate_age(birth_date_val)) if birth_date_val else 0  # ← แก้ไข
 
     bmi_value = 0.0
     if h > 0:
@@ -150,7 +164,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
         firstName=first_name_clean,
         lastName=last_name_clean,
         gender=user.gender,
-        age=user.age,
+        birth_date=birth_date_val,  # ✅ เพิ่ม birth_date แทน age
         height_cm=user.height_cm,
         weight_kg=user.weight_kg,
         target_weight_kg=user.target_weight_kg,
@@ -284,7 +298,7 @@ def me(current_user: models.User = Depends(get_current_user)):
         "target_carbs":     current_user.target_carbs,
         "target_protein":   current_user.target_protein,
         "target_fat":       current_user.target_fat,
-        "age":              current_user.age,
+        "birth_date":       current_user.birth_date,  # ✅ เปลี่ยนจาก age
         "weight_kg":        current_user.weight_kg,
         "height_cm":        current_user.height_cm,
         "health_info":      current_user.health_info,
@@ -408,14 +422,17 @@ def update_user_profile(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    current_user.age         = payload.age
+    # ✅ แก้: อัปเดต birth_date แทน age
+    if payload.birth_date:
+        current_user.birth_date = payload.birth_date
+    
     current_user.weight_kg   = payload.weight_kg
     current_user.height_cm   = payload.height_cm
     current_user.health_info = payload.health_info
 
     w = float(payload.weight_kg or 0)
     h = float(payload.height_cm or 0)
-    a = float(payload.age or 0)
+    a = float(calculate_age(current_user.birth_date)) if current_user.birth_date else 0  # ✅ แก้
 
     current_user.bmi = round(w / ((h / 100.0) ** 2), 2) if h > 0 and w > 0 else None
 

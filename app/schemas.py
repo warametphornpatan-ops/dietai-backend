@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, model_validator
 from typing import Optional, Literal
-from datetime import datetime
+from datetime import datetime, date  # ✅ เพิ่ม date
 
 # -----------------------------
 # Users
@@ -17,7 +17,7 @@ class UserCreate(BaseModel):
     last_name: Optional[str] = None
 
     gender: Optional[str] = None
-    age: Optional[int] = None
+    birth_date: Optional[date] = None  # ✅ แก้: age → birth_date
     height_cm: Optional[float] = None
     weight_kg: Optional[float] = None
     target_weight_kg: Optional[float] = None
@@ -47,6 +47,7 @@ class UserResponse(BaseModel):
     username: str
     firstName: Optional[str] = Field(None, alias="firstName")
     lastName: Optional[str] = Field(None, alias="lastName")
+    birth_date: Optional[date] = None  # ✅ แก้: age → birth_date
     created_at: Optional[datetime] = None
     role: Optional[str] = None
     target_calories: Optional[int] = 0
@@ -117,11 +118,9 @@ class HealthRecordCreate(BaseModel):
     recommendation: str
 
 
-# -----------------------------
-# Profile Update
-# -----------------------------
+# ✅ แก้: age → birth_date
 class UserProfileUpdateReq(BaseModel):
-    age: int
+    birth_date: Optional[date] = None  # ← เปลี่ยน
     weight_kg: float
     height_cm: float
     health_info: Optional[str] = None
