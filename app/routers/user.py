@@ -147,6 +147,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     gram_fat = int(round((cal_tdee * fat_pct) / 9))
     cal_fat_actual = gram_fat * 9
 
+    # ยืนยันโปรตีนขั้นต่ำ
     gram_protein = max(
         int(round((cal_tdee * protein_pct) / 4)),
         int(round(0.8 * w))
@@ -465,6 +466,20 @@ def update_user_profile(
     current_user.target_protein  = int(round(protein_gram))
     current_user.target_fat      = int(round(fat_gram))
 
+    # 🆕 เพิ่มจุดที่ 1: บันทึกข้อมูลน้ำหนัก/ส่วนสูงลงตารางประวัติ (user_profile_history) ทุกครั้งที่มีการแก้ไข
+    db.execute(
+        text("""
+            INSERT INTO user_profile_history (user_id, weight_kg, height_cm, health_info)
+            VALUES (:user_id, :weight_kg, :height_cm, :health_info)
+        """),
+        {
+            "user_id": current_user.id,
+            "weight_kg": w,
+            "height_cm": h,
+            "health_info": payload.health_info
+        }
+    )
+
     db.commit()
     db.refresh(current_user)
     return {
@@ -479,6 +494,34 @@ def update_user_profile(
             "target_fat":       current_user.target_fat,
         },
     }
+
+
+# 🆕 เพิ่มจุดที่ 2: สร้าง API เส้นใหม่สำหรับดึงข้อมูลประวัติสุขภาพ (GET /me/history)
+@router.get("/me/history")
+def get_user_profile_history(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    result = db.execute(
+        text("""
+            SELECT id, weight_kg, height_cm, health_info, created_at
+            FROM user_profile_history
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+        """),
+        {"user_id": current_user.id}
+    ).mappings().all()
+
+    return [
+        {
+            "id": row["id"],
+            "weight_kg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
+            "height_cm": float(row["height_cm"]) if row["height_cm"] is not None else None,
+            "health_info": row["health_info"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+        for row in result
+    ]
 
 
 # ---------- Check Username ----------
