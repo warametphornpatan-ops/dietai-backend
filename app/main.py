@@ -7,7 +7,7 @@ import jwt
 import logging
 import os
 from app import session_manager
-from app.middleware.session_middleware import SessionValidationMiddleware
+#from app.middleware.session_middleware import SessionValidationMiddleware
 
 from app.database import get_db
 from .routers import (
