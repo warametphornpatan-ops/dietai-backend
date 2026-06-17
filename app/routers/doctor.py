@@ -202,10 +202,15 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         query = query.filter(or_(*filters))
     elif name:
         filters = []
+        # แก้ไขจุดเสี่ยงที่ 2: ดักครอบคลุมทั้งแบบ camelCase และ snake_case เพื่อไม่ให้หลุดฟิลเตอร์
         if hasattr(models.User, 'firstName'):
             filters.append(models.User.firstName.like(f"%{name}%"))
+        if hasattr(models.User, 'first_name'):
+            filters.append(models.User.first_name.like(f"%{name}%"))
         if hasattr(models.User, 'lastName'):
             filters.append(models.User.lastName.like(f"%{name}%"))
+        if hasattr(models.User, 'last_name'):
+            filters.append(models.User.last_name.like(f"%{name}%"))
         if not filters:
             return []
         query = query.filter(or_(*filters))
@@ -231,7 +236,9 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
 
     daily_map: Dict = {}
     for row in daily_rows:
-        daily_map.setdefault(str(row["user_id"]), []).append({
+        # แก้ไขจุดเสี่ยงที่ 3: ใช้ .lower() เพื่อความแม่นยำในการ Map คีย์ UUID string
+        uid_key = str(row["user_id"]).lower()
+        daily_map.setdefault(uid_key, []).append({
             "date": str(row["log_date"]),
             "totalCal": float(row["total_cal"] or 0),
             "totalCarb": float(row["total_carb"] or 0),
@@ -250,7 +257,8 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
 
     food_map: Dict = {}
     for row in food_rows:
-        food_map.setdefault(str(row["user_id"]), []).append({
+        uid_key = str(row["user_id"]).lower()
+        food_map.setdefault(uid_key, []).append({
             "id": row["id"],
             "foodName": row["food_name"],
             "calories": float(row["calories"] or 0),
@@ -272,7 +280,8 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
 
     hr_map: Dict = {}
     for row in hr_rows:
-        hr_map.setdefault(str(row["user_id"]), []).append({
+        uid_key = str(row["user_id"]).lower()
+        hr_map.setdefault(uid_key, []).append({
             "id": row["id"],
             "systolic": row["systolic"],
             "diastolic": row["diastolic"],
@@ -291,7 +300,8 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
 
     weight_map: Dict = {}
     for row in weight_rows:
-        weight_map.setdefault(str(row["user_id"]), []).append({
+        uid_key = str(row["user_id"]).lower()
+        weight_map.setdefault(uid_key, []).append({
             "date": row["created_at"].isoformat() if row["created_at"] else None,
             "weightKg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
         })
@@ -299,7 +309,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
     # ✅ สร้าง Result
     results = []
     for u in users:
-        uid = str(u.id)
+        uid = str(u.id).lower()
         height = getattr(u, "height_cm", getattr(u, "heightCm", None))
         weight = getattr(u, "weight_kg", getattr(u, "weightKg", None))
         bmi = None
@@ -344,7 +354,7 @@ def create_health_record(user_id: str, record: HealthRecordCreate, db: Session =
     try:
         db.execute(text("""
             INSERT INTO health_records (user_id, systolic, diastolic, pulse, recommendation)
-            VALUES (:user_id, :systolic, :diastolic, :pulse, :recommendation)
+            VALUES (CAST(:user_id AS uuid), :systolic, :diastolic, :pulse, :recommendation)
         """), {
             "user_id": user_id,
             "systolic": record.systolic,
@@ -400,11 +410,11 @@ def get_organization_by_code(org_code: str, db: Session = Depends(get_db)):
 @router.get("/patients/{user_id}/profile-history", response_model=List[UserProfileHistoryResponse])
 def get_patient_profile_history(user_id: str, db: Session = Depends(get_db)):
     try:
-        # ดึงข้อมูลจากตาราง user_profile_history เรียงตามเวลาล่าสุดลงไป
+        # แก้ไขจุดเสี่ยงที่ 1: เพิ่ม CAST(:user_id AS uuid) ป้องกัน Syntax/Type Error บน Postgres
         rows = db.execute(text("""
             SELECT id, weight_kg, height_cm, health_info, created_at
             FROM user_profile_history
-            WHERE user_id = :user_id
+            WHERE user_id = CAST(:user_id AS uuid)
             ORDER BY created_at DESC
         """), {"user_id": user_id}).mappings().all()
         
