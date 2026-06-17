@@ -1,6 +1,6 @@
 """
 app/routers/auth_session.py
-Login/Logout ด้วย Session Management
+Login/Logout ด้วย Session Management (Username-based)
 """
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Depends
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 # ===== Pydantic Models =====
 
 class LoginRequest(BaseModel):
-    email: str
+    username: str
     password: str
     remember_me: bool = False
 
@@ -51,12 +51,12 @@ async def login(
 ):
     """
     Login endpoint
-    ส่ง email + password เพื่อได้ JWT token + session
+    ส่ง username + password เพื่อได้ JWT token + session
     """
     
     # ค้นหา user ตามอรรถวิธี (ลองทั้ง user, doctor, admin)
     user = db.query(models.User).filter(
-        models.User.email == credentials.email
+        models.User.username == credentials.username
     ).first()
     
     role = "user"
@@ -64,14 +64,14 @@ async def login(
     if not user:
         # ลองหา doctor
         user = db.query(models.Doctors).filter(
-            models.Doctors.email == credentials.email
+            models.Doctors.username == credentials.username
         ).first()
         role = "doctor"
     
     if not user:
         # ลองหา admin
         user = db.query(models.Admin).filter(
-            models.Admin.email == credentials.email
+            models.Admin.username == credentials.username
         ).first()
         role = "admin"
     
@@ -79,7 +79,7 @@ async def login(
     if not user or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid username or password"
         )
     
     # ดึง user_id ตามประเภท
@@ -110,8 +110,8 @@ async def login(
         ip_address=client_ip,
         user_agent=user_agent,
         extra_data={
-            "email": user.email,
-            "name": getattr(user, "name", getattr(user, "username", "Unknown"))
+            "username": credentials.username,
+            "name": getattr(user, "name", getattr(user, "first_name", "Unknown"))
         }
     )
     
@@ -128,7 +128,7 @@ async def login(
             "user_id": user_id,
             "role": role,
             "csrf_token": csrf_token,
-            "message": f"Welcome {user.name or user.email}!"
+            "message": f"Welcome {credentials.username}!"
         },
         status_code=status.HTTP_200_OK
     )
