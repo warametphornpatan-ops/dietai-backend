@@ -20,6 +20,7 @@ from .routers import (
     admin,
     food_logs,
     organization,
+    support_router,
 )
 # ✅ เพิ่มบรรทัดนี้
 from app.routers.doctor_approval import router as doctor_approval_router
@@ -133,6 +134,7 @@ app.include_router(staff_reset_password.router)
 app.include_router(doctor.router,              prefix="/doctors", tags=["doctor"])
 app.include_router(admin.router,               prefix="/admins",  tags=["admin"])
 app.include_router(organization.router)
+app.include_router(support_router.router)
 
 # ✅ เพิ่มบรรทัดนี้
 app.include_router(doctor_approval_router)
