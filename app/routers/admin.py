@@ -572,7 +572,7 @@ def resolve_support_request(
     return {"message": "อัปเดตสถานะคำร้องเรียนสำเร็จ"}
 
 
-@router.get("/all-system-users")
+@router.get("/list-all-users")
 def get_all_users(
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
