@@ -32,6 +32,9 @@ def create_session(
     extra_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """สร้าง session ใหม่"""
+    if redis_client is None:
+        raise Exception("Redis service not available")
+    
     session_id = str(uuid.uuid4())
     
     session_data = {
@@ -59,12 +62,18 @@ def create_session(
 
 def get_session(session_id: str) -> Optional[Dict[str, Any]]:
     """ดึง session data"""
+    if redis_client is None:
+        return None
+    
     data = redis_client.get(f"{SESSION_PREFIX}{session_id}")
     return json.loads(data) if data else None
 
 
 def get_user_sessions(user_id: str) -> list:
     """ดึง session ทั้งหมดของ user"""
+    if redis_client is None:
+        return []
+    
     sessions = []
     for key in redis_client.scan_iter(f"{SESSION_PREFIX}*"):
         data = redis_client.get(key)
@@ -79,6 +88,9 @@ def get_user_sessions(user_id: str) -> list:
 
 def update_session_activity(session_id: str) -> bool:
     """อัพเดต last_activity"""
+    if redis_client is None:
+        return False
+    
     session = get_session(session_id)
     if not session:
         return False
@@ -99,6 +111,9 @@ def validate_session(
     user_agent: str
 ) -> tuple:
     """ตรวจสอบ session ว่า valid หรือไม่"""
+    if redis_client is None:
+        return False, "Redis service not available"
+    
     session = get_session(session_id)
     
     if not session:
@@ -117,6 +132,9 @@ def validate_session(
 
 def revoke_session(session_id: str) -> bool:
     """ปิด session เดียว"""
+    if redis_client is None:
+        return False
+    
     session = get_session(session_id)
     if session:
         session["is_active"] = False
@@ -131,6 +149,9 @@ def revoke_session(session_id: str) -> bool:
 
 def revoke_all_user_sessions(user_id: str, except_session_id: Optional[str] = None) -> int:
     """ปิด session ทั้งหมดของ user"""
+    if redis_client is None:
+        return 0
+    
     sessions = get_user_sessions(user_id)
     count = 0
     
@@ -148,6 +169,9 @@ def revoke_all_user_sessions(user_id: str, except_session_id: Optional[str] = No
 
 def generate_csrf_token(session_id: str) -> str:
     """สร้าง CSRF token"""
+    if redis_client is None:
+        raise Exception("Redis service not available")
+    
     csrf_token = hashlib.sha256(
         (session_id + str(uuid.uuid4())).encode()
     ).hexdigest()
@@ -163,6 +187,9 @@ def generate_csrf_token(session_id: str) -> str:
 
 def verify_csrf_token(csrf_token: str, session_id: str) -> bool:
     """ตรวจสอบ CSRF token"""
+    if redis_client is None:
+        return False
+    
     stored_session_id = redis_client.get(f"{CSRF_PREFIX}{csrf_token}")
     if not stored_session_id:
         return False
