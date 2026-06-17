@@ -522,7 +522,7 @@ def delete_admin(
 # ============================================================
 # ✅ FIX 2: เพิ่ม endpoint สำหรับ "รายการแจ้งปัญหา" (Support Requests)
 # ============================================================
-# ตาราง support_requests มีคอลัมน์: id, email, request_type,
+# ตาราง support_requests มีคอลัมน์: id, email, name, request_type,
 #   description, status, created_at
 # frontend อ่านชื่อ contact_info / details จึงต้อง map ให้ตรง
 
@@ -533,7 +533,7 @@ def get_support_requests(
     current_admin: models.User = Depends(get_current_admin)
 ):
     rows = db.execute(text("""
-        SELECT id, email, request_type, description, status, created_at
+        SELECT id, email, name, request_type, description, status, created_at
         FROM support_requests
         WHERE status = 'pending' OR status IS NULL
         ORDER BY created_at DESC
@@ -544,8 +544,8 @@ def get_support_requests(
         requests.append({
             "id": r.id,
             "contact_info": r.email,            # map email → contact_info
+            "name": r.name or "",                # ✅ ตอนนี้ select มาแล้ว เข้าถึงได้จริง
             "details": r.description or "",      # map description → details
-            "name": r.name or "", 
             "request_type": r.request_type,
             "status": r.status or "pending",
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -584,21 +584,21 @@ def get_all_users(
     ถ้าส่ง ?search= มา จะกรองด้วยชื่อ/username/email
     """
     users = db.query(models.User).all()
- 
+
     result = []
     for u in users:
         # ยืดหยุ่นกับชื่อคอลัมน์ (first_name หรือ firstName)
         first = getattr(u, "first_name", None) or getattr(u, "firstName", None) or ""
         last = getattr(u, "last_name", None) or getattr(u, "lastName", None) or ""
         full_name = f"{first} {last}".strip()
- 
+
         result.append({
             "id": str(getattr(u, "id", "")),
             "name": full_name or "—",
             "username": getattr(u, "username", "") or "",
             "email": getattr(u, "email", "") or "",
         })
- 
+
     # กรองตามคำค้นหา (ถ้ามี)
     if search:
         s = search.strip().lower()
@@ -608,5 +608,5 @@ def get_all_users(
             or s in r["username"].lower()
             or s in r["email"].lower()
         ]
- 
+
     return {"users": result, "total": len(result)}
