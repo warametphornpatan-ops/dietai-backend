@@ -155,3 +155,10 @@ class AdminResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserProfileHistoryResponse(BaseModel):
+    id: int
+    weightKg: Optional[float]
+    heightCm: Optional[float]
+    healthInfo: Optional[str]
+    createdAt: Optional[str]
