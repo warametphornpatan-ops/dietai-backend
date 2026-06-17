@@ -224,7 +224,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             SUM(calories) as total_cal,
             SUM(carbs) as total_carb
         FROM food_logs
-        WHERE user_id = ANY(:user_ids::uuid[])
+        WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
         GROUP BY user_id, DATE(created_at)
         ORDER BY user_id, log_date DESC
     """, user_ids)
@@ -243,7 +243,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         FROM (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
             FROM food_logs
-            WHERE user_id = ANY(:user_ids::uuid[])
+            WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
         ) ranked
         WHERE rn <= 50
     """, user_ids)
@@ -265,7 +265,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         FROM (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
             FROM health_records
-            WHERE user_id = ANY(:user_ids::uuid[])
+            WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
         ) ranked
         WHERE rn <= 30
     """, user_ids)
@@ -285,7 +285,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
     weight_rows = _fetch_batch(db, """
         SELECT user_id, weight_kg, created_at
         FROM user_profile_history
-        WHERE user_id = ANY(:user_ids::uuid[])
+        WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
         ORDER BY user_id, created_at ASC
     """, user_ids)
 
