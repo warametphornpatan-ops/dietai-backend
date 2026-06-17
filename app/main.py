@@ -141,7 +141,7 @@ app.include_router(alerts.router,              prefix="/alerts",       tags=["al
 app.include_router(food_images.router)
 app.include_router(user_reset_password.router)
 app.include_router(staff_reset_password.router)
-app.include_router(doctor.router,              prefix="/api/doctors",  tags=["doctor"])  # ✅ แก้: /api/doctors
+app.include_router(doctor.router, prefix="/api/doctors", tags=["doctor"])  # ✅ เปลี่ยน
 app.include_router(admin.router,               prefix="/admins",       tags=["admin"])
 app.include_router(organization.router)
 app.include_router(support_router.router)
