@@ -9,6 +9,7 @@ import os
 from ..database import get_db
 from .. import models
 from .. import schemas
+# 🔐 นำเข้า get_current_user เพื่อใช้ล็อกสิทธิ์ API
 from app.security import create_access_token, get_current_user
 
 from supabase import create_client, Client
@@ -20,6 +21,15 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 router = APIRouter()
 
+# ---------- Dependency สำหรับล็อกเฉพาะสิทธิ์ Admin ----------
+def get_current_admin(current_user: models.User = Depends(get_current_user)):
+    # เช็คว่า Token ที่ส่งมามี Role เป็น admin หรือไม่
+    if getattr(current_user, "role", None) != "admin":
+        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์เข้าถึงข้อมูลนี้ (เฉพาะแอดมินเท่านั้น)")
+    return current_user
+
+
+# ---------- Schemas ----------
 class LoginReq(BaseModel):
     username: str
     password: str
@@ -38,7 +48,6 @@ class SyncPasswordReq(BaseModel):
     email: str
     new_password: str
 
-# ✅ Form สำหรับแก้ไข Admin Profile
 class AdminProfileUpdate(BaseModel):
     first_name: str
     last_name: str
@@ -64,9 +73,13 @@ def check_username_global(
     return {"is_available": True, "detail": "Username นี้สามารถใช้งานได้"}
 
 
-# --- 2. API ลงทะเบียนผู้ดูแลระบบ ---
+# --- 2. API ลงทะเบียนผู้ดูแลระบบ (ล็อกสิทธิ์เฉพาะแอดมินเดิมทำได้) ---
 @router.post("/register")
-def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)) -> Dict[str, str]:
+def register_admin(
+    payload: schemas.AdminCreate, 
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+) -> Dict[str, str]:
     admin_username = payload.username.strip()
     admin_username_lower = admin_username.lower()
     email_clean_lower = payload.email.strip().lower()
@@ -89,7 +102,6 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)) 
     if existing_doctor_user:
         raise HTTPException(status_code=400, detail="ชื่อผู้ใช้นี้ถูกใช้งานแล้วในระบบบัญชีแพทย์ผู้ใช้งาน")
 
-    # ✅ ส่ง invite email แทน hash password
     try:
         supabase.auth.admin.invite_user_by_email(
             payload.email.strip(),
@@ -114,17 +126,15 @@ def register_admin(payload: schemas.AdminCreate, db: Session = Depends(get_db)) 
     return {"message": "เพิ่มผู้ดูแลระบบและส่งอีเมลคำเชิญเรียบร้อยแล้ว"}
 
 
-# --- 3. ดึงรายชื่อแอดมินในหน่วยงาน ---
+# --- 3. ดึงรายชื่อแอดมินในหน่วยงาน (🔒 ล็อก org_code ตามแอดมินที่ล็อกอิน) ---
 @router.get("/list")
 def get_admins(
-    org_code: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, List[Dict[str, str]]]:
-    query = db.query(models.Admin)
-    if org_code:
-        query = query.filter(models.Admin.org_code == org_code)
-
-    admins = query.all()
+    # ดึงเฉพาะแอดมินที่อยู่องค์กรเดียวกันกับแอดมินคนนี้เท่านั้น
+    admins = db.query(models.Admin).filter(models.Admin.org_code == current_admin.org_code).all()
+    
     result: List[Dict[str, str]] = []
     for a in admins:
         result.append({
@@ -140,14 +150,15 @@ def get_admins(
     return {"admins": result}
 
 
-# --- 4. ดึงรายชื่อแพทย์ทั้งหมด ---
+# --- 4. ดึงรายชื่อแพทย์ทั้งหมด (🔒 ล็อก org_code ตามแอดมินที่ล็อกอิน) ---
 @router.get("/doctors")
-def get_doctors(org_code: Optional[str] = Query(None), db: Session = Depends(get_db)) -> Dict[str, List[Dict[str, str]]]:
-    query = db.query(models.Doctors)
-    if org_code:
-        query = query.filter(models.Doctors.org_code == org_code)
-
-    doctors = query.all()
+def get_doctors(
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+) -> Dict[str, List[Dict[str, str]]]:
+    # ดึงเฉพาะแพทย์ที่อยู่องค์กรเดียวกันกับแอดมินคนนี้
+    doctors = db.query(models.Doctors).filter(models.Doctors.org_code == current_admin.org_code).all()
+    
     result: List[Dict[str, str]] = []
     for doc in doctors:
         result.append({
@@ -162,9 +173,13 @@ def get_doctors(org_code: Optional[str] = Query(None), db: Session = Depends(get
     return {"doctors": result}
 
 
-# --- 5. API ลงทะเบียนบุคลากรทางการแพทย์ ---
+# --- 5. API ลงทะเบียนบุคลากรทางการแพทย์ (🔒 ล็อกสิทธิ์) ---
 @router.post("/doctors")
-def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> Dict[str, str]:
+def add_doctor(
+    payload: schemas.DoctorCreate, 
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+) -> Dict[str, str]:
     username_clean = payload.username.strip()
     username_lower = username_clean.lower()
     email_clean = payload.email.strip()
@@ -191,7 +206,7 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
     hashed_pwd = bcrypt_sha256.hash(payload.password)
 
     new_doctor = models.Doctors(
-        org_code=payload.org_code,
+        org_code=current_admin.org_code, # บังคับให้ใช้ org_code เดียวกับแอดมินผู้สร้าง
         citizen_id=payload.citizen_id,
         first_name=payload.first_name,
         last_name=payload.last_name,
@@ -207,10 +222,20 @@ def add_doctor(payload: schemas.DoctorCreate, db: Session = Depends(get_db)) -> 
 
 # --- 6. API แก้ไขข้อมูลแพทย์ ---
 @router.put("/doctors/{doctor_id}")
-def update_doctor(doctor_id: str, payload: DoctorUpdate, db: Session = Depends(get_db)) -> Dict[str, str]:
-    doctor = db.query(models.Doctors).filter(models.Doctors.id == doctor_id).first()
+def update_doctor(
+    doctor_id: str, 
+    payload: DoctorUpdate, 
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+) -> Dict[str, str]:
+    # ดึงแพทย์และเช็คว่าอยู่ในองค์กรเดียวกันไหม
+    doctor = db.query(models.Doctors).filter(
+        models.Doctors.id == doctor_id,
+        models.Doctors.org_code == current_admin.org_code
+    ).first()
+    
     if not doctor:
-        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแพทย์ในระบบ")
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแพทย์ในระบบของคุณ")
 
     username_clean = payload.username.strip()
     username_lower = username_clean.lower()
@@ -249,10 +274,18 @@ def update_doctor(doctor_id: str, payload: DoctorUpdate, db: Session = Depends(g
 
 # --- 7. API ลบแพทย์ ---
 @router.delete("/doctors/{doctor_id}")
-def delete_doctor(doctor_id: str, db: Session = Depends(get_db)) -> Dict[str, str]:
-    doctor = db.query(models.Doctors).filter(models.Doctors.id == doctor_id).first()
+def delete_doctor(
+    doctor_id: str, 
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+) -> Dict[str, str]:
+    doctor = db.query(models.Doctors).filter(
+        models.Doctors.id == doctor_id,
+        models.Doctors.org_code == current_admin.org_code
+    ).first()
+    
     if not doctor:
-        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแพทย์")
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแพทย์ในหน่วยงานของคุณ")
 
     try:
         db.delete(doctor)
@@ -313,7 +346,7 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
                         "org_code": doctor.org_code,
                         "first_name": doctor.first_name,
                         "last_name": doctor.last_name,
-                        "position": doctor.position,  # ✅ เพิ่ม position
+                        "position": doctor.position,
                     }
                 )
                 return {"access_token": access_token, "token_type": "bearer", "role": "doctor"}
@@ -333,7 +366,7 @@ def login_staff(payload: LoginReq, db: Session = Depends(get_db)) -> Dict[str, s
                         "org_code": doctor.org_code,
                         "first_name": doctor.first_name,
                         "last_name": doctor.last_name,
-                        "position": doctor.position,  # ✅ เพิ่ม position
+                        "position": doctor.position,
                     }
                 )
                 return {"access_token": access_token, "token_type": "bearer", "role": "doctor"}
@@ -377,7 +410,7 @@ def check_admin_email(email: str, db: Session = Depends(get_db)) -> Dict[str, bo
     return {"is_available": is_available}
 
 
-# --- 11. ✅ API sync-password สำหรับแอดมิน ---
+# --- 11. API sync-password สำหรับแอดมิน ---
 @router.patch("/sync-password")
 def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db)):
     admin = db.query(models.Admin).filter(
@@ -395,20 +428,23 @@ def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 
-# --- 12. ✅ API แก้ไขข้อมูล Admin Profile (ตัวเอง) ---
+# --- 12. API แก้ไขข้อมูล Admin Profile (ตัวเอง) (🔒 ล็อกให้อัปเดตได้เฉพาะไอดีตัวเองที่ดึงจาก Token เท่านั้น) ---
 @router.patch("/profile/{admin_id}")
 def update_admin_profile(
     admin_id: str,
     payload: AdminProfileUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, str]:
-    """แก้ไขข้อมูล admin ตัวเอง"""
     
+    # ป้องกันแอดมินคนอื่นมั่วเปลี่ยนไอดีบน URL เพื่อยิงข้ามไปแก้โปรไฟล์ของคนอื่น
+    if str(current_admin.admin_id) != admin_id:
+         raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์แก้ไขโปรไฟล์ของผู้อื่น")
+
     admin = db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
     if not admin:
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแอดมิน")
 
-    # ตรวจสอบอีเมลไม่ซ้ำ
     email_lower = payload.email.strip().lower()
     if email_lower != admin.email.lower():
         existing_admin = db.query(models.Admin).filter(
@@ -443,13 +479,22 @@ def update_admin_profile(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
-    
-    # --- 13. ✅ API ลบแอดมิน ---
+
+
+# --- 13. API ลบแอดมิน (✅ แก้ไขวงเล็บ ปิดวงเล็บให้ถูกบล็อกฟังก์ชันอย่างถูกต้อง) ---
 @router.delete("/{admin_id}")
-def delete_admin(admin_id: str, db: Session = Depends(get_db)) -> Dict[str, str]:
+def delete_admin(
+    admin_id: str, 
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+) -> Dict[str, str]:
     admin = db.query(models.Admin).filter(models.Admin.admin_id == admin_id).first()
     if not admin:
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลผู้ดูแลระบบ")
+
+    # เช็คว่าแอดมินที่กำลังจะลบ อยู่ในหน่วยงานเดียวกันกับผู้ลบหรือไม่
+    if admin.org_code != current_admin.org_code:
+        raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์ลบผู้ดูแลระบบของหน่วยงานอื่น")
 
     # กันลบแอดมินคนสุดท้ายของหน่วยงาน (ไม่งั้นหน่วยงานจะไม่มีแอดมินเหลือ)
     admin_count = db.query(models.Admin).filter(

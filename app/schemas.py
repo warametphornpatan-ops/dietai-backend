@@ -162,3 +162,8 @@ class UserProfileHistoryResponse(BaseModel):
     heightCm: Optional[float]
     healthInfo: Optional[str]
     createdAt: Optional[str]
+
+class SupportRequestCreate(BaseModel):
+    email: str
+    request_type: str 
+    description: Optional[str] = None

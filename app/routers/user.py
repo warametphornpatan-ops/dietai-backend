@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text, func
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime, timezone, timedelta, date  # ✅ เพิ่ม date
 from ..database import get_db
 from .. import models, schemas
@@ -66,6 +66,25 @@ class TokenResponse(BaseModel):
     token_type: str = "Bearer"
     expires_in: int = 900
 
+class SupportRequestCreate(BaseModel):
+    email: EmailStr
+    request_type: str
+    description: Optional[str] = None
+
+
+@router.post("/support-requests")
+def create_support_request(payload: SupportRequestCreate, db: Session = Depends(get_db)):
+    # นำข้อมูลเข้าตาราง support_requests
+    # (อย่าลืม import models จากไฟล์ models.py ที่เราเพิ่มคลาสไว้ก่อนหน้านี้ด้วยนะครับ)
+    new_request = models.SupportRequest(
+        email=payload.email,
+        request_type=payload.request_type,
+        description=payload.description,
+        status="pending" # ค่าเริ่มต้น
+    )
+    db.add(new_request)
+    db.commit()
+    return {"message": "ส่งคำร้องสำเร็จ กรุณารอการติดต่อกลับจากเจ้าหน้าที่"}
 
 # ---------- Register ----------
 @router.post("/register")
@@ -554,3 +573,33 @@ def check_username(
         return {"is_available": False, "detail": "Username นี้ถูกใช้งานแล้วในระบบผู้ใช้งาน"}
 
     return {"is_available": True, "detail": "Username นี้สามารถใช้งานได้"}
+
+# ---------- Support Requests ----------
+@router.post("/support-requests")
+def create_support_request(payload: SupportRequestCreate, db: Session = Depends(get_db)):
+    if not payload.email or "@" not in payload.email:
+        raise HTTPException(status_code=400, detail="รูปแบบอีเมลไม่ถูกต้อง")
+        
+    try:
+        # ใช้ db.execute ในการ INSERT ข้อมูลลงตารางตรงๆ แบบเดียวกับที่คุณทำในประวัติโปรไฟล์
+        db.execute(
+            text("""
+                INSERT INTO support_requests (email, request_type, description, status)
+                VALUES (:email, :request_type, :description, 'pending')
+            """),
+            {
+                "email": payload.email.strip(),
+                "request_type": payload.request_type.strip(),
+                "description": payload.description.strip() if payload.description else None
+            }
+        )
+        db.commit()
+        return {"status": "success", "detail": "ส่งคำร้องขอความช่วยเหลือสำเร็จแล้ว แอดมินจะตรวจสอบและติดต่อกลับโดยเร็ว"}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[ERROR] Create support request failed: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail="เกิดข้อผิดพลาดของระบบ ไม่สามารถส่งคำร้องได้ในขณะนี้"
+        )
