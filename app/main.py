@@ -6,6 +6,8 @@ from sqlalchemy import text
 import jwt
 import logging
 import os
+from app import session_manager
+from app.middleware.session_middleware import SessionValidationMiddleware
 
 from app.database import get_db
 from .routers import (
@@ -21,6 +23,7 @@ from .routers import (
     food_logs,
     organization,
     support_router,
+    auth_session,  # ✅ เพิ่มบรรทัดนี้
 )
 # ✅ เพิ่มบรรทัดนี้
 from app.routers.doctor_approval import router as doctor_approval_router
@@ -84,6 +87,9 @@ app.add_middleware(
     max_age=3600,  # ✅ Cache preflight response 1 hour
 )
 
+# ✅ เพิ่ม Session Validation Middleware (หลัง CORS)
+app.add_middleware(SessionValidationMiddleware)
+
 # ✅ Log CORS config ตอน startup
 logger.info(f"CORS configured with origins: {allowed_origins}")
 
@@ -138,6 +144,9 @@ app.include_router(support_router.router)
 
 # ✅ เพิ่มบรรทัดนี้
 app.include_router(doctor_approval_router)
+
+# ✅ เพิ่ม Auth Session Router
+app.include_router(auth_session.router)
 
 
 # ===== Auth: ดึงโปรไฟล์แอดมินจาก JWT =====
@@ -206,23 +215,7 @@ def force_get_users_for_frontend(search: str = None, db: Session = Depends(get_d
     except Exception as e:
         logger.error(f"Force fetch users failed: {e}")
         raise HTTPException(status_code=500, detail="ไม่สามารถโหลดข้อมูลผู้ใช้จากฐานข้อมูลได้")
-    
-    # 🛠️ จุดที่ 2: เพิ่มเพื่อแก้ปัญหา 405 Method Not Allowed สำหรับ /admins/users ของ Frontend
-@app.get("/admins/users", tags=["admin"])
-def force_get_users_for_frontend(search: str = None, db: Session = Depends(get_db)):
-    """ดึงรายชื่อผู้ใช้ทั้งหมดในตาราง users ส่งกลับหน้าบ้านเมื่อมีการกดค้นหา"""
-    try:
-        query_str = "SELECT user_id, first_name, last_name, email, username, is_active FROM users"
-        bind_params = {}
-        if search:
-            query_str += " WHERE first_name LIKE :search OR email LIKE :search OR username LIKE :search"
-            bind_params["search"] = f"%{search}%"
-            
-        result = db.execute(text(query_str), bind_params).mappings().all()
-        return [dict(row) for row in result]
-    except Exception as e:
-        logger.error(f"Force fetch users failed: {e}")
-        raise HTTPException(status_code=500, detail="ไม่สามารถโหลดข้อมูลผู้ใช้จากฐานข้อมูลได้")
+
 
 @app.get("/")
 def root():
