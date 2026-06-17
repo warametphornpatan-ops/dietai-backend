@@ -105,11 +105,11 @@ def health_check(db: Session = Depends(get_db)):
             "version": "1.0.0"
         }, 500
 
-# ===== Routers (แก้ไขและล็อกสิทธิ์แยกเด็ดขาดตามกลุ่ม) =====
+# ===== Routers =====
 app.include_router(user.router,                 prefix="/user",            tags=["users"])
 app.include_router(foods.router,                prefix="/foods",           tags=["foods"])
 app.include_router(detect_router,               prefix="/detect",          tags=["detection"])
-app.include_router(food_logs.router,            prefix="/food-logs",       tags=["food-logs"]) # 🛠️ แก้ไข: แยกจาก /foods เพื่อไม่ให้ Route ชนกัน
+app.include_router(food_logs.router,            prefix="/food-logs",       tags=["food-logs"]) 
 app.include_router(meals.router,                prefix="/meals",           tags=["meals"])
 app.include_router(alerts.router,               prefix="/alerts",          tags=["alerts"])
 app.include_router(food_images.router,          prefix="/images",          tags=["images"])
@@ -119,7 +119,7 @@ app.include_router(doctor.router,               prefix="/doctors",         tags=
 app.include_router(admin.router,                prefix="/admins",          tags=["admin"])
 app.include_router(organization.router,         prefix="/org",             tags=["organization"])
 app.include_router(support_router.router,       prefix="/support",         tags=["support"])
-app.include_router(doctor_approval_router,      prefix="/doctor-approval", tags=["approval"]) # 🛠️ แก้ไข: ใส่ prefix ป้องกัน Route ตีกับฝั่ง admin
+app.include_router(doctor_approval_router,      prefix="/doctor-approval", tags=["approval"]) 
 
 # ===== Auth: ดึงโปรไฟล์แอดมินจาก JWT =====
 @app.get("/auth/me", tags=["Authentication"])
@@ -164,6 +164,23 @@ async def get_current_user_profile(
         "email":      result["email"],
         "username":   result["username"],
     }
+
+# 🛠️ แอดเพิ่มตรงนี้: ดักแก้ปัญหา 405 สำหรับเส้นทาง /admins/users ของ Frontend โดยตรง
+@app.get("/admins/users", tags=["admin"])
+def force_get_users_for_frontend(search: str = None, db: Session = Depends(get_db)):
+    """ฟังก์ชันแก้ปัญหาเร่งด่วน ดึงรายชื่อผู้ใช้ทั้งหมดในตาราง users ส่งกลับหน้าบ้าน"""
+    try:
+        query_str = "SELECT user_id, first_name, last_name, email, username, is_active FROM users"
+        bind_params = {}
+        if search:
+            query_str += " WHERE first_name LIKE :search OR email LIKE :search OR username LIKE :search"
+            bind_params["search"] = f"%{search}%"
+            
+        result = db.execute(text(query_str), bind_params).mappings().all()
+        return [dict(row) for row in result]
+    except Exception as e:
+        logger.error(f"Force fetch users failed: {e}")
+        raise HTTPException(status_code=500, detail="ไม่สามารถโหลดข้อมูลผู้ใช้จากฐานข้อมูลได้")
 
 @app.get("/")
 def root():
