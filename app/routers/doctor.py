@@ -202,7 +202,6 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         query = query.filter(or_(*filters))
     elif name:
         filters = []
-        # แก้ไขจุดเสี่ยงที่ 2: ดักครอบคลุมทั้งแบบ camelCase และ snake_case เพื่อไม่ให้หลุดฟิลเตอร์
         if hasattr(models.User, 'firstName'):
             filters.append(models.User.firstName.like(f"%{name}%"))
         if hasattr(models.User, 'first_name'):
@@ -221,7 +220,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
 
     user_ids = [str(u.id) for u in users]
 
-    # ✅ ดึง Daily Nutrition
+    # ✅ ดึง Daily Nutrition (เปลี่ยนไปใช้ CAST AS text[] เพื่อให้ตรงกับประเภทข้อมูลใน DB)
     daily_rows = _fetch_batch(db, """
         SELECT
             user_id,
@@ -229,14 +228,13 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             SUM(calories) as total_cal,
             SUM(carbs) as total_carb
         FROM food_logs
-        WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
+        WHERE user_id = ANY(CAST(:user_ids AS text[]))
         GROUP BY user_id, DATE(created_at)
         ORDER BY user_id, log_date DESC
     """, user_ids)
 
     daily_map: Dict = {}
     for row in daily_rows:
-        # แก้ไขจุดเสี่ยงที่ 3: ใช้ .lower() เพื่อความแม่นยำในการ Map คีย์ UUID string
         uid_key = str(row["user_id"]).lower()
         daily_map.setdefault(uid_key, []).append({
             "date": str(row["log_date"]),
@@ -244,13 +242,13 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "totalCarb": float(row["total_carb"] or 0),
         })
 
-    # ✅ ดึง Food Logs
+    # ✅ ดึง Food Logs (เปลี่ยนไปใช้ CAST AS text[])
     food_rows = _fetch_batch(db, """
         SELECT id, user_id, food_name, calories, carbs, protein, created_at
         FROM (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
             FROM food_logs
-            WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
+            WHERE user_id = ANY(CAST(:user_ids AS text[]))
         ) ranked
         WHERE rn <= 50
     """, user_ids)
@@ -267,13 +265,13 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         })
 
-    # ✅ ดึง Health Records
+    # ✅ ดึง Health Records (เปลี่ยนไปใช้ CAST AS text[])
     hr_rows = _fetch_batch(db, """
         SELECT id, user_id, systolic, diastolic, pulse, recommendation, created_at
         FROM (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
             FROM health_records
-            WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
+            WHERE user_id = ANY(CAST(:user_ids AS text[]))
         ) ranked
         WHERE rn <= 30
     """, user_ids)
@@ -290,11 +288,11 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         })
 
-    # ✅ ดึง Weight History (NEW)
+    # ✅ ดึง Weight History (เปลี่ยนไปใช้ CAST AS text[])
     weight_rows = _fetch_batch(db, """
         SELECT user_id, weight_kg, created_at
         FROM user_profile_history
-        WHERE user_id = ANY(CAST(:user_ids AS uuid[]))
+        WHERE user_id = ANY(CAST(:user_ids AS text[]))
         ORDER BY user_id, created_at ASC
     """, user_ids)
 
@@ -320,7 +318,6 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         health_info_val = getattr(u, "healthInfo", getattr(u, "health_info", None))
         allergies_list = [i.strip() for i in health_info_val.split(",") if i.strip()] if health_info_val else []
 
-        # ✅ เพิ่มทุก Field ที่ Frontend ต้องการ
         results.append({
             "userId": u.id,
             "citizenId": getattr(u, "citizen_id", getattr(u, "citizenId", None)),
@@ -328,17 +325,17 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "lastName": getattr(u, "lastName", getattr(u, "last_name", None)),
             "heightCm": height,
             "weightKg": weight,
-            "targetWeightKg": getattr(u, "targetWeightKg", getattr(u, "target_weight_kg", None)),  # ✅ NEW
+            "targetWeightKg": getattr(u, "targetWeightKg", getattr(u, "target_weight_kg", None)),
             "bmi": bmi,
-            "bmr": getattr(u, "bmr", None),  # ✅ NEW
-            "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)),  # ✅ NEW
-            "targetCarbs": getattr(u, "target_carbs", getattr(u, "targetCarbs", None)),  # ✅ NEW
-            "targetProtein": getattr(u, "target_protein", getattr(u, "targetProtein", None)),  # ✅ NEW
-            "targetFat": getattr(u, "target_fat", getattr(u, "targetFat", None)),  # ✅ NEW
+            "bmr": getattr(u, "bmr", None),
+            "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)),
+            "targetCarbs": getattr(u, "target_carbs", getattr(u, "targetCarbs", None)),
+            "targetProtein": getattr(u, "target_protein", getattr(u, "targetProtein", None)),
+            "targetFat": getattr(u, "target_fat", getattr(u, "targetFat", None)),
             "dailyNutrition": daily_map.get(uid, []),
             "foodLogs": food_map.get(uid, []),
             "healthRecords": hr_map.get(uid, []),
-            "weightHistory": weight_map.get(uid, []),  # ✅ NEW
+            "weightHistory": weight_map.get(uid, []),
             "allergies": allergies_list,
         })
 
@@ -354,7 +351,7 @@ def create_health_record(user_id: str, record: HealthRecordCreate, db: Session =
     try:
         db.execute(text("""
             INSERT INTO health_records (user_id, systolic, diastolic, pulse, recommendation)
-            VALUES (CAST(:user_id AS uuid), :systolic, :diastolic, :pulse, :recommendation)
+            VALUES (CAST(:user_id AS text), :systolic, :diastolic, :pulse, :recommendation)
         """), {
             "user_id": user_id,
             "systolic": record.systolic,
@@ -410,15 +407,13 @@ def get_organization_by_code(org_code: str, db: Session = Depends(get_db)):
 @router.get("/patients/{user_id}/profile-history", response_model=List[UserProfileHistoryResponse])
 def get_patient_profile_history(user_id: str, db: Session = Depends(get_db)):
     try:
-        # แก้ไขจุดเสี่ยงที่ 1: เพิ่ม CAST(:user_id AS uuid) ป้องกัน Syntax/Type Error บน Postgres
         rows = db.execute(text("""
             SELECT id, weight_kg, height_cm, health_info, created_at
             FROM user_profile_history
-            WHERE user_id = CAST(:user_id AS uuid)
+            WHERE user_id = CAST(:user_id AS text)
             ORDER BY created_at DESC
         """), {"user_id": user_id}).mappings().all()
         
-        # จัดรูปแบบข้อมูลเพื่อส่งกลับไปให้หน้าบ้าน (Frontend)
         history_list = []
         for row in rows:
             history_list.append({
