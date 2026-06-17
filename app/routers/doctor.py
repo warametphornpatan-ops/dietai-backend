@@ -8,6 +8,7 @@ from .. import models
 from app.security import create_access_token, verify_password, hash_password
 import logging
 import os
+import uuid  # เพิ่มเพื่อรองรับการตรวจสอบประเภทข้อมูล UUID
 
 logger = logging.getLogger(__name__)
 
@@ -167,12 +168,11 @@ def sync_doctor_password(
 
 def _fetch_batch(db: Session, sql: str, user_ids: List) -> list:
     """
-    ✅ รองรับทั้ง 1 user และหลาย user
-    ใช้ string interpolation แบบปลอดภัยด้วย ANY + ARRAY
+    ✅ รองรับการ Query โดยส่ง tuple เข้าไปแมปกับเงื่อนไข IN (...) ของ SQL ตรงๆ
     """
     return db.execute(
         text(sql),
-        {"user_ids": list(user_ids)}
+        {"user_ids": tuple(user_ids)}
     ).mappings().all()
 
 
@@ -184,7 +184,6 @@ def _fetch_batch(db: Session, sql: str, user_ids: List) -> list:
 def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_db)):
     """
     ✅ ดึงข้อมูลคนไข้พร้อม BMR, TDEE, Weight History
-    ค้นหาด้วย name หรือ citizenId
     """
     if not name and not citizenId:
         return []
@@ -218,9 +217,10 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
     if not users:
         return []
 
+    # ดึง user_ids ออกมาในรูปแบบ string
     user_ids = [str(u.id) for u in users]
 
-    # ✅ ดึง Daily Nutrition (เปลี่ยนไปใช้ CAST AS text[] เพื่อให้ตรงกับประเภทข้อมูลใน DB)
+    # ✅ ปรับ SQL ให้รองรับการเปรียบเทียบทั้งแบบสตริงข้อความทั่วไปและ UUID โดยใช้ CAST(user_id AS text) เพื่อป้องกัน 500 Error
     daily_rows = _fetch_batch(db, """
         SELECT
             user_id,
@@ -228,7 +228,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             SUM(calories) as total_cal,
             SUM(carbs) as total_carb
         FROM food_logs
-        WHERE user_id = ANY(CAST(:user_ids AS text[]))
+        WHERE CAST(user_id AS text) IN :user_ids
         GROUP BY user_id, DATE(created_at)
         ORDER BY user_id, log_date DESC
     """, user_ids)
@@ -242,13 +242,13 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "totalCarb": float(row["total_carb"] or 0),
         })
 
-    # ✅ ดึง Food Logs (เปลี่ยนไปใช้ CAST AS text[])
+    # ✅ ดึง Food Logsด้วยวิธี CAST AS text เพื่อความปลอดภัยและเสถียรที่สุด
     food_rows = _fetch_batch(db, """
         SELECT id, user_id, food_name, calories, carbs, protein, created_at
         FROM (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
             FROM food_logs
-            WHERE user_id = ANY(CAST(:user_ids AS text[]))
+            WHERE CAST(user_id AS text) IN :user_ids
         ) ranked
         WHERE rn <= 50
     """, user_ids)
@@ -265,13 +265,13 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         })
 
-    # ✅ ดึง Health Records (เปลี่ยนไปใช้ CAST AS text[])
+    # ✅ ดึง Health Records ด้วยวิธี CAST AS text
     hr_rows = _fetch_batch(db, """
         SELECT id, user_id, systolic, diastolic, pulse, recommendation, created_at
         FROM (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
             FROM health_records
-            WHERE user_id = ANY(CAST(:user_ids AS text[]))
+            WHERE CAST(user_id AS text) IN :user_ids
         ) ranked
         WHERE rn <= 30
     """, user_ids)
@@ -288,11 +288,11 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         })
 
-    # ✅ ดึง Weight History (เปลี่ยนไปใช้ CAST AS text[])
+    # ✅ ดึง Weight History ด้วยวิธี CAST AS text
     weight_rows = _fetch_batch(db, """
         SELECT user_id, weight_kg, created_at
         FROM user_profile_history
-        WHERE user_id = ANY(CAST(:user_ids AS text[]))
+        WHERE CAST(user_id AS text) IN :user_ids
         ORDER BY user_id, created_at ASC
     """, user_ids)
 
@@ -410,9 +410,9 @@ def get_patient_profile_history(user_id: str, db: Session = Depends(get_db)):
         rows = db.execute(text("""
             SELECT id, weight_kg, height_cm, health_info, created_at
             FROM user_profile_history
-            WHERE user_id = CAST(:user_id AS text)
+            WHERE CAST(user_id AS text) = :user_id
             ORDER BY created_at DESC
-        """), {"user_id": user_id}).mappings().all()
+        """), {"user_id": str(user_id)}).mappings().all()
         
         history_list = []
         for row in rows:

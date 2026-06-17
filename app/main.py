@@ -1,434 +1,226 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, text, func
-from pydantic import BaseModel
-from typing import Optional, Dict, List
-from ..database import get_db
-from .. import models
-from app.security import create_access_token, verify_password, hash_password
+from sqlalchemy import text
+import jwt
 import logging
 import os
-import uuid  # เพิ่มเพื่อรองรับการตรวจสอบประเภทข้อมูล UUID
+from app import session_manager
+from app.middleware.session_middleware import SessionValidationMiddleware
 
+from app.database import get_db
+from .routers import (
+    user,
+    foods,
+    meals,
+    alerts,
+    food_images,
+    user_reset_password,
+    staff_reset_password,
+    doctor,
+    admin,
+    food_logs,
+    organization,
+    support_router,
+    auth_session,  # ✅ เพิ่มบรรทัดนี้
+)
+# ✅ เพิ่มบรรทัดนี้
+from app.routers.doctor_approval import router as doctor_approval_router
+
+from app.routers.multi_detect import router as detect_router
+#from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
+from .config import settings
+
+# ===== App =====
+app = FastAPI(
+    title="Smart Carb Analyzer API",
+    version="1.0.0",
+    debug=settings.debug,
+)
+
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
+security = HTTPBearer()
 
-# ==========================================
-# 🌟 Pydantic Schemas
-# ==========================================
+# ===== CORS ✅ สมบูรณ์ =====
+allowed_origins = [
+    # Development
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",  # Vite dev
+    "http://127.0.0.1:5173",
+    
+    # Production Frontend
+    "https://dietai-frontend.vercel.app",
+    "https://dietai-frontend-5tcrd7ufw-warametphornpatan-ops-projects.vercel.app",
+    "https://dietai-frontend-git-main-warametphornpatan-ops-projects.vercel.app",
+    
+    # Admin Frontend
+    "https://dietai-admin.vercel.app",
+]
 
-class UserProfileHistoryResponse(BaseModel):
-    id: int
-    weightKg: Optional[float] = None
-    heightCm: Optional[float] = None
-    healthInfo: Optional[str] = None
-    createdAt: Optional[str] = None
+# ✅ เพิ่ม Environment variable สำหรับ dynamic origins
+extra_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+for origin in extra_origins:
+    if origin.strip() and origin.strip() not in allowed_origins:
+        allowed_origins.append(origin.strip())
 
-class HealthRecordCreate(BaseModel):
-    systolic: Optional[int] = None
-    diastolic: Optional[int] = None
-    pulse: Optional[int] = None
-    recommendation: str
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,  # ✅ Allow all configured origins
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # ✅ รวม OPTIONS สำหรับ preflight
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-CSRF-Token",
+        "Access-Control-Allow-Origin",
+    ],
+    max_age=3600,  # ✅ Cache preflight response 1 hour
+    expose_headers=[
+        "Content-Type",
+        "Authorization",
+    ]
+)
 
-class DoctorLoginReq(BaseModel):
-    username: str
-    password: str
-    org_code: str
+# ✅ เพิ่ม Session Validation Middleware (หลัง CORS)
+app.add_middleware(SessionValidationMiddleware)
 
-class SyncPasswordReq(BaseModel):
-    email: str
-    new_password: str
+# ✅ Log CORS config ตอน startup
+logger.info(f"CORS configured with origins: {allowed_origins}")
 
-
-router = APIRouter(tags=["doctor"])
-
-SYNC_SECRET = os.getenv("SYNC_SECRET", "")
+#app.add_middleware(RateLimitMiddleware, requests_per_hour=settings.rate_limit_requests)
+#app.add_middleware(ErrorHandlingMiddleware)
 
 
-# ==========================================
-# 🌟 API สำหรับการเข้าสู่ระบบของแพทย์
-# ==========================================
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
 
-@router.post("/login")
-def login_doctor(payload: DoctorLoginReq, db: Session = Depends(get_db)) -> Dict[str, str]:
-    username = payload.username.strip()
-    password = payload.password
-    org_code = payload.org_code.strip()
 
+# ===== Health Check =====
+@app.get("/health", tags=["Health"])
+def health_check(db: Session = Depends(get_db)):
+    """ตรวจสอบสถานะ API และ Database"""
     try:
-        doctor = db.query(models.Doctors).filter(
-            func.lower(models.Doctors.username) == username.lower()
-        ).first()
-    except Exception as e:
-        logger.error(f"Error querying doctor: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="❌ เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล"
-        )
-
-    if not doctor:
-        logger.warning(f"Doctor not found: username={username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="❌ ไม่พบชื่อผู้ใช้นี้ในระบบ"
-        )
-
-    if not verify_password(password, doctor.password_hash):
-        logger.warning(f"Invalid password: username={username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="❌ รหัสผ่านไม่ถูกต้อง"
-        )
-
-    clean_payload_org = "".join(filter(str.isdigit, org_code if org_code else ""))
-    clean_doctor_org = "".join(filter(str.isdigit, doctor.org_code.strip() if doctor.org_code else ""))
-
-    if clean_doctor_org != clean_payload_org:
-        logger.warning(f"Org code mismatch: username={username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="❌ รหัสหน่วยงานไม่ตรงกับสิทธิ์การเข้าใช้งานของแพทย์ท่านนี้"
-        )
-
-    if hasattr(doctor, 'status') and doctor.status != "approved":
-        logger.warning(f"Doctor not approved: username={username}, status={doctor.status}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="❌ บัญชีของคุณยังไม่ได้รับการอนุมัติ"
-        )
-
-    try:
-        access_token = create_access_token(
-            data={
-                "sub": doctor.username,
-                "role": "doctor",
-                "org_code": doctor.org_code,
-                "first_name": doctor.first_name,
-                "last_name": doctor.last_name,
-                "position": doctor.position,
-            }
-        )
-        logger.info(f"✅ Doctor login successful: username={username}")
+        # Test database connection
+        db.execute(text("SELECT 1"))
         return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "role": "doctor"
+            "status": "ok",
+            "message": "API and Database are healthy",
+            "version": "1.0.0"
         }
     except Exception as e:
-        logger.error(f"Error creating token: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="❌ เกิดข้อผิดพลาดในการสร้าง token"
-        )
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "version": "1.0.0"
+        }, 500
 
 
-# ==========================================
-# ✨ API ซิงค์รหัสผ่านจาก Supabase
-# ==========================================
+# ===== Routers =====
+app.include_router(user.router,                prefix="/user",         tags=["users"])
+app.include_router(foods.router,               prefix="/foods",        tags=["foods"])
+app.include_router(detect_router)
+app.include_router(food_logs.router,           prefix="/foods")
+app.include_router(meals.router,               prefix="/meals",        tags=["meals"])
+app.include_router(alerts.router,              prefix="/alerts",       tags=["alerts"])
+app.include_router(food_images.router)
+app.include_router(user_reset_password.router)
+app.include_router(staff_reset_password.router)
+app.include_router(doctor.router, prefix="/api/doctors", tags=["doctor"])
+app.include_router(admin.router,               prefix="/admins",       tags=["admin"])
+app.include_router(organization.router)
+app.include_router(support_router.router)
 
-@router.patch("/sync-password")
-def sync_doctor_password(
-    payload: SyncPasswordReq,
+# ✅ เพิ่มบรรทัดนี้
+app.include_router(doctor_approval_router)
+
+# ✅ เพิ่ม Auth Session Router
+app.include_router(auth_session.router)
+
+
+# ===== Auth: ดึงโปรไฟล์แอดมินจาก JWT =====
+@app.get("/auth/me", tags=["Authentication"])
+async def get_current_user_profile(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
-    x_sync_secret: str = Header(..., alias="X-Sync-Secret")
 ):
-    if not SYNC_SECRET or x_sync_secret != SYNC_SECRET:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="❌ ไม่มีสิทธิ์เข้าถึง endpoint นี้"
-        )
+    token = credentials.credentials
 
-    doctor = db.query(models.Doctors).filter(
-        models.Doctors.email == payload.email
-    ).first()
+    # 1. ถอดรหัส JWT
+    try:
+        secret = getattr(settings, "secret_key", getattr(settings, "jwt_secret", "YOUR_SECRET_KEY"))
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        # sub เก็บ admin_id (UUID) ไม่ใช่ username
+        user_id = payload.get("sub")
+    except Exception as e:
+        logger.error(f"Token decode failed: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ไม่ถูกต้อง หรือหมดอายุแล้ว")
 
-    if not doctor:
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="ไม่พบข้อมูลผู้ใช้ใน Token")
+
+    # 2. ค้นหาใน admins
+    # ✅ แก้ไข: ใช้ first_name/last_name ให้ตรงกับ schema ตาราง admins จริง
+    result = db.execute(
+        text("""
+            SELECT admin_id, org_code, first_name, last_name, email, username
+            FROM admins
+            WHERE admin_id = :uid OR username = :uid
+            LIMIT 1
+        """),
+        {"uid": user_id},
+    ).mappings().first()
+
+    if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="❌ ไม่พบข้อมูลแพทย์ที่มีอีเมลนี้ในระบบหลัก"
+            detail="ไม่พบข้อมูลบัญชีแอดมินนี้ในฐานข้อมูลหน่วยงาน",
         )
 
+    # 3. ส่งข้อมูลกลับ
+    return {
+        "admin_id":   str(result["admin_id"]),
+        "org_code":   result["org_code"],
+        "first_name": result["first_name"],   # ✅ ตรงกับ AdminResponse schema
+        "last_name":  result["last_name"],
+        "email":      result["email"],
+        "username":   result["username"],
+    }
+
+# ===== ดักจับ Endpoint พิเศษสำหรับระบบแอดมิน =====
+
+@app.get("/admins/users", tags=["admin"])
+def force_get_users_for_frontend(search: str = None, db: Session = Depends(get_db)):
+    """แก้ปัญหา 405 ดึงรายชื่อผู้ใช้ทั้งหมดในตาราง users ส่งกลับหน้าบ้านทันที"""
     try:
-        doctor.password_hash = hash_password(payload.new_password)
-        db.commit()
-        logger.info(f"✅ Doctor password synced: email={payload.email}")
-        return {"status": "success", "message": "บันทึกรหัสผ่านเข้าฐานข้อมูลหลักสำเร็จ"}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error syncing password: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"❌ Database Error: {str(e)}"
-        )
-
-
-# ==========================================
-# 🌟 Helper: batch query ด้วย user_ids list
-# ==========================================
-
-def _fetch_batch(db: Session, sql: str, user_ids: List) -> list:
-    """
-    ✅ รองรับการ Query โดยส่ง tuple เข้าไปแมปกับเงื่อนไข IN (...) ของ SQL ตรงๆ
-    """
-    return db.execute(
-        text(sql),
-        {"user_ids": tuple(user_ids)}
-    ).mappings().all()
-
-
-# ==========================================
-# 🌟 API ดึงข้อมูลคนไข้ (COMPLETE VERSION)
-# ==========================================
-
-@router.get("/patients")
-def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_db)):
-    """
-    ✅ ดึงข้อมูลคนไข้พร้อม BMR, TDEE, Weight History
-    """
-    if not name and not citizenId:
-        return []
-
-    query = db.query(models.User).filter(models.User.role == "user")
-
-    if citizenId:
-        filters = []
-        if hasattr(models.User, 'citizen_id'):
-            filters.append(models.User.citizen_id.like(f"%{citizenId}%"))
-        if hasattr(models.User, 'citizenId'):
-            filters.append(models.User.citizenId.like(f"%{citizenId}%"))
-        if not filters:
-            return []
-        query = query.filter(or_(*filters))
-    elif name:
-        filters = []
-        if hasattr(models.User, 'firstName'):
-            filters.append(models.User.firstName.like(f"%{name}%"))
-        if hasattr(models.User, 'first_name'):
-            filters.append(models.User.first_name.like(f"%{name}%"))
-        if hasattr(models.User, 'lastName'):
-            filters.append(models.User.lastName.like(f"%{name}%"))
-        if hasattr(models.User, 'last_name'):
-            filters.append(models.User.last_name.like(f"%{name}%"))
-        if not filters:
-            return []
-        query = query.filter(or_(*filters))
-
-    users = query.all()
-    if not users:
-        return []
-
-    # ดึง user_ids ออกมาในรูปแบบ string
-    user_ids = [str(u.id) for u in users]
-
-    # ✅ ปรับ SQL ให้รองรับการเปรียบเทียบทั้งแบบสตริงข้อความทั่วไปและ UUID โดยใช้ CAST(user_id AS text) เพื่อป้องกัน 500 Error
-    daily_rows = _fetch_batch(db, """
-        SELECT
-            user_id,
-            DATE(created_at) as log_date,
-            SUM(calories) as total_cal,
-            SUM(carbs) as total_carb
-        FROM food_logs
-        WHERE CAST(user_id AS text) IN :user_ids
-        GROUP BY user_id, DATE(created_at)
-        ORDER BY user_id, log_date DESC
-    """, user_ids)
-
-    daily_map: Dict = {}
-    for row in daily_rows:
-        uid_key = str(row["user_id"]).lower()
-        daily_map.setdefault(uid_key, []).append({
-            "date": str(row["log_date"]),
-            "totalCal": float(row["total_cal"] or 0),
-            "totalCarb": float(row["total_carb"] or 0),
-        })
-
-    # ✅ ดึง Food Logsด้วยวิธี CAST AS text เพื่อความปลอดภัยและเสถียรที่สุด
-    food_rows = _fetch_batch(db, """
-        SELECT id, user_id, food_name, calories, carbs, protein, created_at
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
-            FROM food_logs
-            WHERE CAST(user_id AS text) IN :user_ids
-        ) ranked
-        WHERE rn <= 50
-    """, user_ids)
-
-    food_map: Dict = {}
-    for row in food_rows:
-        uid_key = str(row["user_id"]).lower()
-        food_map.setdefault(uid_key, []).append({
-            "id": row["id"],
-            "foodName": row["food_name"],
-            "calories": float(row["calories"] or 0),
-            "carbs": float(row["carbs"] or 0),
-            "protein": float(row["protein"] or 0),
-            "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
-        })
-
-    # ✅ ดึง Health Records ด้วยวิธี CAST AS text
-    hr_rows = _fetch_batch(db, """
-        SELECT id, user_id, systolic, diastolic, pulse, recommendation, created_at
-        FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) as rn
-            FROM health_records
-            WHERE CAST(user_id AS text) IN :user_ids
-        ) ranked
-        WHERE rn <= 30
-    """, user_ids)
-
-    hr_map: Dict = {}
-    for row in hr_rows:
-        uid_key = str(row["user_id"]).lower()
-        hr_map.setdefault(uid_key, []).append({
-            "id": row["id"],
-            "systolic": row["systolic"],
-            "diastolic": row["diastolic"],
-            "pulse": row["pulse"],
-            "recommendation": row["recommendation"],
-            "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
-        })
-
-    # ✅ ดึง Weight History ด้วยวิธี CAST AS text
-    weight_rows = _fetch_batch(db, """
-        SELECT user_id, weight_kg, created_at
-        FROM user_profile_history
-        WHERE CAST(user_id AS text) IN :user_ids
-        ORDER BY user_id, created_at ASC
-    """, user_ids)
-
-    weight_map: Dict = {}
-    for row in weight_rows:
-        uid_key = str(row["user_id"]).lower()
-        weight_map.setdefault(uid_key, []).append({
-            "date": row["created_at"].isoformat() if row["created_at"] else None,
-            "weightKg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
-        })
-
-    # ✅ สร้าง Result
-    results = []
-    for u in users:
-        uid = str(u.id).lower()
-        height = getattr(u, "height_cm", getattr(u, "heightCm", None))
-        weight = getattr(u, "weight_kg", getattr(u, "weightKg", None))
-        bmi = None
-        if height and weight:
-            h = height / 100
-            bmi = round(weight / (h * h), 2)
-
-        health_info_val = getattr(u, "healthInfo", getattr(u, "health_info", None))
-        allergies_list = [i.strip() for i in health_info_val.split(",") if i.strip()] if health_info_val else []
-
-        results.append({
-            "userId": u.id,
-            "citizenId": getattr(u, "citizen_id", getattr(u, "citizenId", None)),
-            "firstName": getattr(u, "firstName", getattr(u, "first_name", None)),
-            "lastName": getattr(u, "lastName", getattr(u, "last_name", None)),
-            "heightCm": height,
-            "weightKg": weight,
-            "targetWeightKg": getattr(u, "targetWeightKg", getattr(u, "target_weight_kg", None)),
-            "bmi": bmi,
-            "bmr": getattr(u, "bmr", None),
-            "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)),
-            "targetCarbs": getattr(u, "target_carbs", getattr(u, "targetCarbs", None)),
-            "targetProtein": getattr(u, "target_protein", getattr(u, "targetProtein", None)),
-            "targetFat": getattr(u, "target_fat", getattr(u, "targetFat", None)),
-            "dailyNutrition": daily_map.get(uid, []),
-            "foodLogs": food_map.get(uid, []),
-            "healthRecords": hr_map.get(uid, []),
-            "weightHistory": weight_map.get(uid, []),
-            "allergies": allergies_list,
-        })
-
-    return results
-
-
-# ==========================================
-# 🌟 API บันทึกข้อมูลสุขภาพ
-# ==========================================
-
-@router.post("/patients/{user_id}/health-records")
-def create_health_record(user_id: str, record: HealthRecordCreate, db: Session = Depends(get_db)):
-    try:
-        db.execute(text("""
-            INSERT INTO health_records (user_id, systolic, diastolic, pulse, recommendation)
-            VALUES (CAST(:user_id AS text), :systolic, :diastolic, :pulse, :recommendation)
-        """), {
-            "user_id": user_id,
-            "systolic": record.systolic,
-            "diastolic": record.diastolic,
-            "pulse": record.pulse,
-            "recommendation": record.recommendation
-        })
-        db.commit()
-        logger.info(f"✅ Health record created: user_id={user_id}")
-        return {"status": "success", "message": "บันทึกข้อมูลสำเร็จ"}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error creating health record: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"❌ Database Error: {str(e)}"
-        )
-
-
-# ==========================================
-# 🌟 API ค้นหาโรงพยาบาลจากรหัส
-# ==========================================
-
-@router.get("/organizations/{org_code}")
-def get_organization_by_code(org_code: str, db: Session = Depends(get_db)):
-    try:
-        org = db.query(models.Organizations).filter(
-            models.Organizations.code == org_code
-        ).first()
-
-        if not org:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"❌ ไม่พบข้อมูลสถานพยาบาลรหัส {org_code}"
-            )
-
-        return {"code": org.code, "name": org.name}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching organization: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="❌ เกิดข้อผิดพลาดในการดึงข้อมูล"
-        )
-
-
-# ==========================================
-# 🌟 API ดึงประวัติการเปลี่ยนแปลงน้ำหนัก
-# ==========================================
-
-@router.get("/patients/{user_id}/profile-history", response_model=List[UserProfileHistoryResponse])
-def get_patient_profile_history(user_id: str, db: Session = Depends(get_db)):
-    try:
-        rows = db.execute(text("""
-            SELECT id, weight_kg, height_cm, health_info, created_at
-            FROM user_profile_history
-            WHERE CAST(user_id AS text) = :user_id
-            ORDER BY created_at DESC
-        """), {"user_id": str(user_id)}).mappings().all()
-        
-        history_list = []
-        for row in rows:
-            history_list.append({
-                "id": row["id"],
-                "weightKg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
-                "heightCm": float(row["height_cm"]) if row["height_cm"] is not None else None,
-                "healthInfo": row["health_info"],
-                "createdAt": row["created_at"].isoformat() if row["created_at"] else None
-            })
+        query_str = "SELECT user_id, first_name, last_name, email, username, is_active FROM users"
+        bind_params = {}
+        if search:
+            query_str += " WHERE first_name LIKE :search OR email LIKE :search OR username LIKE :search"
+            bind_params["search"] = f"%{search}%"
             
-        return history_list
-
+        result = db.execute(text(query_str), bind_params).mappings().all()
+        return [dict(row) for row in result]
     except Exception as e:
-        logger.error(f"Error fetching user profile history: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"❌ เกิดข้อผิดพลาดในการดึงข้อมูลประวัติ: {str(e)}"
-        )
+        logger.error(f"Force fetch users failed: {e}")
+        raise HTTPException(status_code=500, detail="ไม่สามารถโหลดข้อมูลผู้ใช้จากฐานข้อมูลได้")
+
+
+@app.get("/")
+def root():
+    return {"message": "🚀 Smart Carb Analyzer API Ready"}
