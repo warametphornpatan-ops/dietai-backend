@@ -29,7 +29,7 @@ from .routers import (
 from app.routers.doctor_approval import router as doctor_approval_router
 
 from app.routers.multi_detect import router as detect_router
-from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
+    #from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
 from .config import settings
 
 # ===== App =====
