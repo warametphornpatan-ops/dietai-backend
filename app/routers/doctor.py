@@ -178,7 +178,7 @@ def _fetch_batch(db: Session, sql: str, user_ids: List) -> list:
 
 
 # ==========================================
-# 🌟 API ดึงข้อมูลคนไข้
+# 🌟 API ดึงข้อมูลคนไข้ (Updated with BMR, TDEE, Weight History)
 # ==========================================
 
 @router.get("/patients")
@@ -213,7 +213,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
 
     user_ids = [str(u.id) for u in users]
 
-    # ✅ ใช้ = ANY(:user_ids) แทน IN รองรับทั้ง 1 และหลาย user_id
+    # ✅ ดึง Daily Nutrition
     daily_rows = _fetch_batch(db, """
         SELECT
             user_id,
@@ -234,6 +234,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "totalCarb": float(row["total_carb"] or 0),
         })
 
+    # ✅ ดึง Food Logs
     food_rows = _fetch_batch(db, """
         SELECT id, user_id, food_name, calories, carbs, protein, created_at
         FROM (
@@ -255,6 +256,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         })
 
+    # ✅ ดึง Health Records
     hr_rows = _fetch_batch(db, """
         SELECT id, user_id, systolic, diastolic, pulse, recommendation, created_at
         FROM (
@@ -276,6 +278,21 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         })
 
+    # ✅ ดึง Weight History (NEW)
+    weight_rows = _fetch_batch(db, """
+        SELECT user_id, weight_kg, created_at
+        FROM user_profile_history
+        WHERE user_id = ANY(:user_ids)
+        ORDER BY user_id, created_at ASC
+    """, user_ids)
+
+    weight_map: Dict = {}
+    for row in weight_rows:
+        weight_map.setdefault(str(row["user_id"]), []).append({
+            "date": row["created_at"].isoformat() if row["created_at"] else None,
+            "weightKg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
+        })
+
     results = []
     for u in users:
         uid = str(u.id)
@@ -289,6 +306,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         health_info_val = getattr(u, "healthInfo", getattr(u, "health_info", None))
         allergies_list = [i.strip() for i in health_info_val.split(",") if i.strip()] if health_info_val else []
 
+        # ✅ เพิ่มค่า BMR, TDEE, Target Calories, Target Carbs, Target Protein, Target Fat
         results.append({
             "userId": u.id,
             "citizenId": getattr(u, "citizen_id", getattr(u, "citizenId", None)),
@@ -296,12 +314,17 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "lastName": getattr(u, "lastName", getattr(u, "last_name", None)),
             "heightCm": height,
             "weightKg": weight,
+            "targetWeightKg": getattr(u, "targetWeightKg", getattr(u, "target_weight_kg", None)),
             "bmi": bmi,
-            "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)),
-            "targetCarbs": getattr(u, "target_carbs", getattr(u, "targetCarbs", None)),
+            "bmr": getattr(u, "bmr", None),  # ✅ NEW
+            "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)),  # ✅ NEW
+            "targetCarbs": getattr(u, "target_carbs", getattr(u, "targetCarbs", None)),  # ✅ NEW
+            "targetProtein": getattr(u, "target_protein", getattr(u, "targetProtein", None)),  # ✅ NEW
+            "targetFat": getattr(u, "target_fat", getattr(u, "targetFat", None)),  # ✅ NEW
             "dailyNutrition": daily_map.get(uid, []),
             "foodLogs": food_map.get(uid, []),
             "healthRecords": hr_map.get(uid, []),
+            "weightHistory": weight_map.get(uid, []),  # ✅ NEW
             "allergies": allergies_list,
         })
 
@@ -364,6 +387,11 @@ def get_organization_by_code(org_code: str, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="❌ เกิดข้อผิดพลาดในการดึงข้อมูล"
         )
+
+
+# ==========================================
+# 🌟 API ดึงประวัติการเปลี่ยนแปลงน้ำหนัก
+# ==========================================
 
 @router.get("/patients/{user_id}/profile-history", response_model=List[UserProfileHistoryResponse])
 def get_patient_profile_history(user_id: str, db: Session = Depends(get_db)):
