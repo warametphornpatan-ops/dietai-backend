@@ -1,15 +1,8 @@
 # ============================================================
 # support_router.py  (แก้ให้ตรงกับตารางจริงใน Supabase)
 # ============================================================
-# ตารางจริงมีคอลัมน์: id, email, request_type, description,
+# ตารางจริงมีคอลัมน์: id, email, name, request_type, description,
 #                      status, created_at
-# (ไม่มี is_resolved และ ไม่มี org_code)
-#
-# วิธีติดตั้ง:
-#   1. วางไฟล์นี้ใน app/routers/support_router.py
-#   2. ใน main.py:
-#        from app.routers import support_router
-#        app.include_router(support_router.router)
 # ============================================================
 
 import logging
@@ -29,22 +22,23 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# 1. MODEL — ให้ตรงกับตารางจริง 100%
+# 1. MODEL — เพิ่ม column name
 # ============================================================
 class SupportRequest(Base):
     __tablename__ = "support_requests"
-    __table_args__ = {"extend_existing": True}  # ใช้ตารางที่มีอยู่แล้ว
+    __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(Text, nullable=False)           # ช่องทางติดต่อกลับ
+    name = Column(Text, nullable=True)             # ✅ เพิ่ม ชื่อ-นามสกุล
     request_type = Column(Text, nullable=False)
     description = Column(Text, nullable=False)
-    status = Column(Text, default="pending")       # ✅ ใช้ status (ไม่ใช่ is_resolved)
+    status = Column(Text, default="pending")
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 # ============================================================
-# 2. SCHEMAS
+# 2. SCHEMAS — เพิ่ม name field
 # ============================================================
 class RequestTypeEnum(str, Enum):
     forgot_username = "forgot_username"
@@ -54,6 +48,7 @@ class RequestTypeEnum(str, Enum):
 
 class SupportRequestCreate(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
+    name: str = Field(..., min_length=1, max_length=255)   # ✅ เพิ่ม
     request_type: RequestTypeEnum = RequestTypeEnum.other
     description: str = Field(..., min_length=1, max_length=2000)
 
@@ -78,17 +73,19 @@ def create_support_request(
 ):
     """รับคำร้องแจ้งปัญหาจากหน้า Login (public — ไม่ต้อง auth)"""
     contact = payload.email.strip()
+    name = payload.name.strip()                    # ✅ รับ name
     description = payload.description.strip()
 
-    if not contact or not description:
+    if not contact or not name or not description:
         raise HTTPException(
             status_code=400,
-            detail="กรุณากรอกข้อมูลติดต่อกลับและรายละเอียดให้ครบถ้วน",
+            detail="กรุณากรอกข้อมูลติดต่อกลับ ชื่อ-นามสกุล และรายละเอียดให้ครบถ้วน",
         )
 
     try:
         new_request = SupportRequest(
             email=contact,
+            name=name,                             # ✅ บันทึก name
             request_type=payload.request_type.value,
             description=description,
             status="pending",
