@@ -143,6 +143,7 @@ app.include_router(user_reset_password.router)
 app.include_router(staff_reset_password.router)
 app.include_router(doctor.router, prefix="/api/doctors", tags=["doctor"])
 app.include_router(admin.router, prefix="/api/admins", tags=["admin"])
+app.include_router(admin.router, prefix="/admins", tags=["admin"])
 app.include_router(organization.router)
 app.include_router(support_router.router)
 
