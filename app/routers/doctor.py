@@ -357,3 +357,34 @@ def get_organization_by_code(org_code: str, db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="❌ เกิดข้อผิดพลาดในการดึงข้อมูล"
         )
+
+@router.get("/patients/{user_id}/profile-history", response_model=List[UserProfileHistoryResponse])
+def get_patient_profile_history(user_id: str, db: Session = Depends(get_db)):
+    try:
+        # ดึงข้อมูลจากตาราง user_profile_history เรียงตามเวลาล่าสุดลงไป
+        rows = db.execute(text("""
+            SELECT id, weight_kg, height_cm, health_info, created_at
+            FROM user_profile_history
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+        """), {"user_id": user_id}).mappings().all()
+        
+        # จัดรูปแบบข้อมูลเพื่อส่งกลับไปให้หน้าบ้าน (Frontend)
+        history_list = []
+        for row in rows:
+            history_list.append({
+                "id": row["id"],
+                "weightKg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
+                "heightCm": float(row["height_cm"]) if row["height_cm"] is not None else None,
+                "healthInfo": row["health_info"],
+                "createdAt": row["created_at"].isoformat() if row["created_at"] else None
+            })
+            
+        return history_list
+
+    except Exception as e:
+        logger.error(f"Error fetching user profile history: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"❌ เกิดข้อผิดพลาดในการดึงข้อมูลประวัติ: {str(e)}"
+        )
