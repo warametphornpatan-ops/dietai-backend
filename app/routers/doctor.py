@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 # 🌟 Pydantic Schemas
 # ==========================================
 
+class UserProfileHistoryResponse(BaseModel):
+    id: int
+    weightKg: Optional[float] = None
+    heightCm: Optional[float] = None
+    healthInfo: Optional[str] = None
+    createdAt: Optional[str] = None
+
 class HealthRecordCreate(BaseModel):
     systolic: Optional[int] = None
     diastolic: Optional[int] = None
