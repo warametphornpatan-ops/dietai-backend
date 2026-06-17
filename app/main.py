@@ -29,7 +29,7 @@ from .routers import (
 from app.routers.doctor_approval import router as doctor_approval_router
 
 from app.routers.multi_detect import router as detect_router
-    #from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
+from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
 from .config import settings
 
 # ===== App =====
@@ -85,6 +85,10 @@ app.add_middleware(
         "Access-Control-Allow-Origin",
     ],
     max_age=3600,  # ✅ Cache preflight response 1 hour
+    expose_headers=[
+        "Content-Type",
+        "Authorization",
+    ]
 )
 
 # ✅ เพิ่ม Session Validation Middleware (หลัง CORS)
@@ -128,17 +132,17 @@ def health_check(db: Session = Depends(get_db)):
 
 
 # ===== Routers =====
-app.include_router(user.router,                prefix="/user",   tags=["users"])
-app.include_router(foods.router,               prefix="/foods",   tags=["foods"])
+app.include_router(user.router,                prefix="/user",         tags=["users"])
+app.include_router(foods.router,               prefix="/foods",        tags=["foods"])
 app.include_router(detect_router)
 app.include_router(food_logs.router,           prefix="/foods")
-app.include_router(meals.router,               prefix="/meals",   tags=["meals"])
-app.include_router(alerts.router,              prefix="/alerts",  tags=["alerts"])
+app.include_router(meals.router,               prefix="/meals",        tags=["meals"])
+app.include_router(alerts.router,              prefix="/alerts",       tags=["alerts"])
 app.include_router(food_images.router)
 app.include_router(user_reset_password.router)
 app.include_router(staff_reset_password.router)
-app.include_router(doctor.router,              prefix="/doctors", tags=["doctor"])
-app.include_router(admin.router,               prefix="/admins",  tags=["admin"])
+app.include_router(doctor.router,              prefix="/api/doctors",  tags=["doctor"])  # ✅ แก้: /api/doctors
+app.include_router(admin.router,               prefix="/admins",       tags=["admin"])
 app.include_router(organization.router)
 app.include_router(support_router.router)
 

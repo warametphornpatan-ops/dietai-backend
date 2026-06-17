@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text, func
-from sqlalchemy import bindparam
 from pydantic import BaseModel
 from typing import Optional, Dict, List
 from ..database import get_db
@@ -178,11 +177,15 @@ def _fetch_batch(db: Session, sql: str, user_ids: List) -> list:
 
 
 # ==========================================
-# 🌟 API ดึงข้อมูลคนไข้ (Updated with BMR, TDEE, Weight History)
+# 🌟 API ดึงข้อมูลคนไข้ (COMPLETE VERSION)
 # ==========================================
 
 @router.get("/patients")
 def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_db)):
+    """
+    ✅ ดึงข้อมูลคนไข้พร้อม BMR, TDEE, Weight History
+    ค้นหาด้วย name หรือ citizenId
+    """
     if not name and not citizenId:
         return []
 
@@ -293,6 +296,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "weightKg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
         })
 
+    # ✅ สร้าง Result
     results = []
     for u in users:
         uid = str(u.id)
@@ -306,7 +310,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         health_info_val = getattr(u, "healthInfo", getattr(u, "health_info", None))
         allergies_list = [i.strip() for i in health_info_val.split(",") if i.strip()] if health_info_val else []
 
-        # ✅ เพิ่มค่า BMR, TDEE, Target Calories, Target Carbs, Target Protein, Target Fat
+        # ✅ เพิ่มทุก Field ที่ Frontend ต้องการ
         results.append({
             "userId": u.id,
             "citizenId": getattr(u, "citizen_id", getattr(u, "citizenId", None)),
@@ -314,7 +318,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             "lastName": getattr(u, "lastName", getattr(u, "last_name", None)),
             "heightCm": height,
             "weightKg": weight,
-            "targetWeightKg": getattr(u, "targetWeightKg", getattr(u, "target_weight_kg", None)),
+            "targetWeightKg": getattr(u, "targetWeightKg", getattr(u, "target_weight_kg", None)),  # ✅ NEW
             "bmi": bmi,
             "bmr": getattr(u, "bmr", None),  # ✅ NEW
             "targetCalories": getattr(u, "target_calories", getattr(u, "targetCalories", None)),  # ✅ NEW
