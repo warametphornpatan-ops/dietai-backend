@@ -1,82 +1,286 @@
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
-from app.session_manager import validate_session, update_session_activity, get_session
-import logging
+"""
+app/routers/auth_session.py
+Login/Logout ด้วย Session Management
+"""
 
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, HTTPException, Request, Response, status, Depends
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from datetime import timedelta
+
+from app.database import get_db
+from app import models
+from app.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.session_manager import (
+    create_session,
+    revoke_session,
+    revoke_all_user_sessions,
+    generate_csrf_token,
+    get_session,
+    get_user_sessions
+)
+
+router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
-class SessionValidationMiddleware(BaseHTTPMiddleware):
-    """Middleware ที่ validate session ในทุก request"""
+# ===== Pydantic Models =====
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+    remember_me: bool = False
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    user_id: str
+    role: str
+    csrf_token: str
+    message: str
+
+
+# ===== Login =====
+
+@router.post("/login", response_model=LoginResponse)
+async def login(
+    request: Request,
+    credentials: LoginRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Login endpoint
+    ส่ง email + password เพื่อได้ JWT token + session
+    """
     
-    SKIP_PATHS = [
-        "/api/auth/login",
-        "/api/auth/register",
-        "/api/auth/refresh",
-        "/docs",
-        "/openapi.json",
-        "/redoc",
-        "/favicon.ico",
-        "/health",
-    ]
+    # ค้นหา user ตามอรรถวิธี (ลองทั้ง user, doctor, admin)
+    user = db.query(models.User).filter(
+        models.User.email == credentials.email
+    ).first()
     
-    async def dispatch(self, request: Request, call_next):
-        # Skip public endpoints
-        if any(request.url.path.startswith(path) for path in self.SKIP_PATHS):
-            return await call_next(request)
+    role = "user"
+    
+    if not user:
+        # ลองหา doctor
+        user = db.query(models.Doctors).filter(
+            models.Doctors.email == credentials.email
+        ).first()
+        role = "doctor"
+    
+    if not user:
+        # ลองหา admin
+        user = db.query(models.Admin).filter(
+            models.Admin.email == credentials.email
+        ).first()
+        role = "admin"
+    
+    # ตรวจสอบ password
+    if not user or not verify_password(credentials.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        )
+    
+    # ดึง user_id ตามประเภท
+    if role == "admin":
+        user_id = str(user.admin_id)
+    elif role == "doctor":
+        user_id = str(user.id)
+    else:
+        user_id = str(user.id)
+    
+    # สร้าง JWT tokens
+    access_token = create_access_token(
+        data={"sub": user_id, "role": role}
+    )
+    
+    # refresh token ใช้เวลา 7 วัน
+    refresh_token = create_refresh_token(
+        data={"sub": user_id, "role": role}
+    )
+    
+    # สร้าง session
+    client_ip = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("User-Agent", "unknown")
+    
+    session_data = create_session(
+        user_id=user_id,
+        role=role,
+        ip_address=client_ip,
+        user_agent=user_agent,
+        extra_data={
+            "email": user.email,
+            "name": getattr(user, "name", getattr(user, "username", "Unknown"))
+        }
+    )
+    
+    session_id = session_data["session_id"]
+    
+    # สร้าง CSRF token
+    csrf_token = generate_csrf_token(session_id)
+    
+    # สร้าง response
+    response = JSONResponse(
+        content={
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user_id": user_id,
+            "role": role,
+            "csrf_token": csrf_token,
+            "message": f"Welcome {user.name or user.email}!"
+        },
+        status_code=status.HTTP_200_OK
+    )
+    
+    # ✅ ส่ง session_id เป็น cookie
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        max_age=30 * 60,  # 30 นาที
+        secure=True,  # HTTPS only
+        httponly=True,  # ป้องกัน JavaScript access
+        samesite="strict"  # CSRF protection
+    )
+    
+    # ✅ ส่ง access_token เป็น cookie (optional)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        max_age=15 * 60,  # 15 นาที
+        secure=True,
+        httponly=True,
+        samesite="strict"
+    )
+    
+    return response
+
+
+# ===== Logout =====
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Logout endpoint
+    ปิด session และ revoke token
+    """
+    
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Session not found"
+        )
+    
+    # ปิด session
+    if revoke_session(session_id):
+        # สร้าง response ที่ลบ cookies
+        response = JSONResponse(
+            content={"message": "Logged out successfully"},
+            status_code=status.HTTP_200_OK
+        )
         
-        # ดึง session_id
-        session_id = request.cookies.get("session_id")
+        # ลบ cookies
+        response.delete_cookie("session_id", secure=True, httponly=True)
+        response.delete_cookie("access_token", secure=True, httponly=True)
         
-        # ถ้าไม่มี session ให้ผ่านไป
-        if not session_id:
-            return await call_next(request)
-        
-        try:
-            # ตรวจสอบ session
-            session = get_session(session_id)
-            
-            if not session or not session.get("is_active"):
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Session expired or invalid"}
-                )
-            
-            # ดึง client info
-            client_ip = request.client.host if request.client else "unknown"
-            user_agent = request.headers.get("User-Agent", "unknown")
-            user_id = session.get("user_id")
-            
-            # Validate session
-            is_valid, error_msg = validate_session(
-                session_id=session_id,
-                user_id=user_id,
-                ip_address=client_ip,
-                user_agent=user_agent
-            )
-            
-            if not is_valid:
-                logger.warning(f"Invalid session for user {user_id}: {error_msg}")
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": error_msg or "Invalid session"}
-                )
-            
-            # อัพเดต activity
-            update_session_activity(session_id)
-            
-            # เพิ่ม session data ลง request.state
-            request.state.session_id = session_id
-            request.state.user_id = user_id
-            request.state.role = session.get("role", "user")
-            
-        except Exception as e:
-            logger.error(f"Session validation error: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={"detail": "Internal server error"}
-            )
-        
-        response = await call_next(request)
         return response
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to logout"
+        )
+
+
+# ===== Logout from All Devices =====
+
+@router.post("/logout-all")
+async def logout_all(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    ปิด session ทั้งหมดของ user (logout from all devices)
+    """
+    
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Session not found"
+        )
+    
+    # ดึง session data เพื่อหา user_id
+    session = get_session(session_id)
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session"
+        )
+    
+    user_id = session.get("user_id")
+    
+    # ปิด session ทั้งหมด ยกเว้น session ปัจจุบัน
+    count = revoke_all_user_sessions(user_id, except_session_id=session_id)
+    
+    response = JSONResponse(
+        content={
+            "message": f"Logged out from {count} other device(s)",
+            "devices_logged_out": count
+        }
+    )
+    
+    # ลบ cookies ปัจจุบัน
+    response.delete_cookie("session_id", secure=True, httponly=True)
+    response.delete_cookie("access_token", secure=True, httponly=True)
+    
+    return response
+
+
+# ===== Get Active Sessions =====
+
+@router.get("/sessions")
+async def get_active_sessions(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    ดูรายการ session ทั้งหมดของ user ปัจจุบัน
+    """
+    
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
+    
+    current_session = get_session(session_id)
+    if not current_session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session"
+        )
+    
+    user_id = current_session.get("user_id")
+    all_sessions = get_user_sessions(user_id)
+    
+    return {
+        "current_session_id": session_id,
+        "total_sessions": len(all_sessions),
+        "sessions": [
+            {
+                "session_id": s.get("session_id"),
+                "ip_address": s.get("ip_address"),
+                "user_agent": s.get("user_agent"),
+                "created_at": s.get("created_at"),
+                "last_activity": s.get("last_activity"),
+                "is_current": s.get("session_id") == session_id
+            }
+            for s in all_sessions
+        ]
+    }
