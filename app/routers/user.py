@@ -426,11 +426,10 @@ def get_my_health_records(
             "diastolic":      row["diastolic"],
             "pulse":          row["pulse"],
             "recommendation": row["recommendation"],
-            "createdAt":      row["created_at"].isoformat() if row["created_at"] else None,
+            "created_at":     row["created_at"].isoformat() if row["created_at"] else None, # 🎉 แก้เป็นตัวพิมพ์เล็กแบบมีขีดล่างแล้ว
         }
         for row in result
     ]
-
 
 # ---------- Update Profile ----------
 @router.put("/me/profile")
