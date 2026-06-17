@@ -21,6 +21,9 @@ from .routers import (
     food_logs,
     organization,
 )
+# ✅ เพิ่มบรรทัดนี้
+from app.routers.doctor_approval import router as doctor_approval_router
+
 from app.routers.multi_detect import router as detect_router
 from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
 from .config import settings
@@ -130,6 +133,9 @@ app.include_router(staff_reset_password.router)
 app.include_router(doctor.router,              prefix="/doctors", tags=["doctor"])
 app.include_router(admin.router,               prefix="/admins",  tags=["admin"])
 app.include_router(organization.router)
+
+# ✅ เพิ่มบรรทัดนี้
+app.include_router(doctor_approval_router)
 
 
 # ===== Auth: ดึงโปรไฟล์แอดมินจาก JWT =====

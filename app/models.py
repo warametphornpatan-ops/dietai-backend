@@ -1,4 +1,5 @@
-# app/models.py
+# app/models.py - เพิ่ม DoctorApplication + แก้ Doctors
+
 from sqlalchemy import Column, String, Integer, Float, Text, DateTime, func, Boolean, ForeignKey
 from uuid import uuid4
 from .database import Base
@@ -17,15 +18,15 @@ class User(Base):
 
     firstName  = Column(String(191))
     lastName   = Column(String(20))
-    birth_date = Column(Date, nullable=True)  # ✅
+    birth_date = Column(Date, nullable=True)
     gender = Column(String(10), nullable=True)
-    heightCm   = Column(Float)  # ✅ เปลี่ยน
-    weightKg   = Column(Float)  # ✅ เปลี่ยน
-    targetWeightKg = Column(Float)  # ✅ เปลี่ยน
-    activityLevel   = Column(String(50))  # ✅ เปลี่ยน
+    heightCm   = Column(Float)
+    weightKg   = Column(Float)
+    targetWeightKg = Column(Float)
+    activityLevel   = Column(String(50))
     goal        = Column(String(100))
-    healthInfo = Column(Text)  # ✅ เปลี่ยน
-    createdAt  = Column(DateTime, server_default=func.now())  # ✅ เปลี่ยน
+    healthInfo = Column(Text)
+    createdAt  = Column(DateTime, server_default=func.now())
 
     target_calories = Column(Integer, default=0)
     target_carbs = Column(Integer, default=0)
@@ -33,6 +34,45 @@ class User(Base):
     target_fat = Column(Integer, default=0)
     bmr = Column(Float, nullable=True)
     bmi = Column(Float, nullable=True)
+
+
+# ============================================================
+# ✅ NEW: DoctorApplication (ตาราง doctor_applications)
+# ============================================================
+
+class DoctorApplication(Base):
+    """
+    เก็บข้อมูลแพทย์ที่รอการอนุมัติ
+    """
+    __tablename__ = "doctor_applications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    org_code = Column(String(20), nullable=False, index=True)
+    citizen_id = Column(String(13), nullable=False)
+    first_name = Column(String(100), nullable=False)
+    last_name = Column(String(100), nullable=False)
+    email = Column(String(100), nullable=False, index=True)
+    username = Column(String(50), nullable=False, unique=True, index=True)
+    password_hash = Column(String(255), nullable=False)
+    position = Column(String(100), nullable=True)
+    
+    status = Column(String(20), default='pending', nullable=False, index=True)
+    email_verified = Column(Boolean, default=False, nullable=False)
+    otp_token = Column(String(6), nullable=True)
+    otp_expires_at = Column(DateTime, nullable=True)
+    
+    user_id = Column(String(36), nullable=True, unique=True)  # Supabase Auth UUID
+    
+    created_at = Column(DateTime, default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<DoctorApplication {self.id}: {self.first_name} {self.last_name}>"
+
+
+# ============================================================
+# ✅ UPDATED: Doctors (เพิ่ม status field)
+# ============================================================
 
 class Doctors(Base):
     __tablename__ = "doctors"
@@ -47,6 +87,15 @@ class Doctors(Base):
     email = Column(String(100), nullable=True)
     position = Column(String, nullable=True)
     
+    # ✅ เพิ่มบรรทัดนี้
+    status = Column(String(20), default='approved', nullable=False, index=True)  # approved, rejected
+    user_id = Column(String(36), nullable=True, unique=True)  # Supabase Auth UUID
+    created_at = Column(DateTime, default=func.now(), nullable=True)
+    
+    def __repr__(self):
+        return f"<Doctor {self.id}: {self.first_name} {self.last_name}>"
+
+
 class FoodLog(Base):
     __tablename__ = "food_logs"
 
@@ -59,6 +108,7 @@ class FoodLog(Base):
     fat = Column(Float, default=0.0)
     image_url = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class Admin(Base):
     __tablename__ = "admins"
@@ -73,6 +123,7 @@ class Admin(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
 
+
 # Token management models for secure authentication
 class TokenBlacklist(Base):
     """Store revoked tokens"""
@@ -81,6 +132,7 @@ class TokenBlacklist(Base):
     jti = Column(String(500), unique=True, index=True)  # JWT ID
     created_at = Column(DateTime, default=func.now())
     expires_at = Column(DateTime)
+
 
 class RefreshToken(Base):
     """Store refresh tokens for token rotation"""
@@ -91,4 +143,3 @@ class RefreshToken(Base):
     created_at = Column(DateTime, default=func.now())
     expires_at = Column(DateTime, nullable=False)
     is_revoked = Column(Integer, default=0)
-
