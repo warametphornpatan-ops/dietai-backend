@@ -1,6 +1,6 @@
 """
 app/routers/auth_session.py
-Login/Logout ด้วย Session Management (Username-based)
+Login/Logout ด้วย Session Management (Username-based, Fixed password fields)
 """
 
 from fastapi import APIRouter, HTTPException, Request, Response, status, Depends
@@ -75,8 +75,20 @@ async def login(
         ).first()
         role = "admin"
     
-    # ตรวจสอบ password
-    if not user or not verify_password(credentials.password, user.password_hash):
+    # ตรวจสอบ user หาไม่เจอ
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password"
+        )
+    
+    # ✅ ตรวจสอบ password ตามประเภท (User ใช้ 'password', อื่น ใช้ 'password_hash')
+    if role == "user":
+        user_password = user.password
+    else:
+        user_password = user.password_hash
+    
+    if not verify_password(credentials.password, user_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
