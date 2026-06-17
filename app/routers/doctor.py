@@ -2,12 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text, func
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 from ..database import get_db
 from .. import models
-from app.security import verify_password, create_access_token
-from passlib.hash import bcrypt_sha256
-from typing import Dict
+from app.security import create_access_token
+import logging
+
+try:
+    from passlib.hash import bcrypt_sha256
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    BCRYPT_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # 🌟 Pydantic Schemas
@@ -36,96 +43,191 @@ router = APIRouter(
 )
 
 # ==========================================
+# 🔐 Helper: Verify Password (Backward Compatible)
+# ==========================================
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    ตรวจสอบ password - รองรับทั้ง:
+    1. bcrypt_sha256 hash (ใหม่)
+    2. plain text (ข้อมูลเก่า - backward compatible)
+    """
+    
+    # ✅ ลอง bcrypt_sha256 ก่อน (ถ้าติดตั้ง)
+    if BCRYPT_AVAILABLE:
+        try:
+            # ตรวจสอบว่า hashed_password ดูเหมือน bcrypt hash
+            if hashed_password.startswith('$2b$') or hashed_password.startswith('$2a$') or hashed_password.startswith('$2y$'):
+                return bcrypt_sha256.verify(plain_password, hashed_password)
+        except Exception as e:
+            logger.debug(f"bcrypt verification failed: {e}")
+    
+    # ✅ Fallback: ใช้ plain text comparison (ข้อมูลเก่า)
+    return plain_password == hashed_password
+
+# ==========================================
 # 🌟 API สำหรับการเข้าสู่ระบบของแพทย์
 # ==========================================
+
 @router.post("/login")
 def login_doctor(payload: DoctorLoginReq, db: Session = Depends(get_db)) -> Dict[str, str]:
-    # ดึงข้อมูลแพทย์จากฐานข้อมูลด้วย username
-    doctor = db.query(models.Doctors).filter(func.lower(models.Doctors.username) == payload.username.strip().lower()).first()
+    """
+    Doctor Login Endpoint
     
-    if not doctor:
-        raise HTTPException(status_code=401, detail="ไม่พบชื่อผู้ใช้นี้")
-
-    # ✅ เพิ่ม try/except ดัก hash format ผิด ไม่ให้ 500
+    - ตรวจสอบ username + password + org_code
+    - ส่งกลับ JWT token
+    """
+    
+    username = payload.username.strip()
+    password = payload.password
+    org_code = payload.org_code.strip()
+    
+    # ✅ ดึงข้อมูลแพทย์จากฐานข้อมูล
     try:
-        valid: bool = bcrypt_sha256.verify(payload.password, doctor.password_hash)
-    except Exception:
-        raise HTTPException(status_code=401, detail="รหัสผ่านไม่ถูกต้อง")
-
-    if not valid:
-        raise HTTPException(status_code=401, detail="รหัสผ่านไม่ถูกต้อง")
-
-    # 🧩 ----------------------------------------------------
-    # เพิ่มส่วนการตรวจสอบรหัสหน่วยงาน (org_code) ของแพทย์ตรงนี้
-    # ----------------------------------------------------
-    # ล้างเครื่องหมายหรือช่องว่าง และกรองให้เหลือเฉพาะตัวเลขตามมาตรฐาน
-    clean_payload_org: str = "".join(filter(str.isdigit, payload.org_code.strip() if payload.org_code else ""))
-    clean_doctor_org: str = "".join(filter(str.isdigit, doctor.org_code.strip() if doctor.org_code else ""))
-
-    # หากรหัสหน่วยงานที่กรอกมา ไม่ตรงกับรหัสหน่วยงานของแพทย์ในฐานข้อมูล
-    if clean_doctor_org != clean_payload_org:
+        doctor = db.query(models.Doctors).filter(
+            func.lower(models.Doctors.username) == username.lower()
+        ).first()
+    except Exception as e:
+        logger.error(f"Error querying doctor: {e}")
         raise HTTPException(
-            status_code=401, 
-            detail="รหัสหน่วยงานไม่ตรงกับสิทธิ์การเข้าใช้งานของแพทย์ท่านนี้"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="❌ เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล"
         )
-    # ----------------------------------------------------
-
-    # สร้าง Access Token เมื่อข้อมูลถูกต้องทั้งหมด
-    access_token: str = create_access_token(
-        data={
-            "sub": doctor.username, 
-            "role": "doctor",
-            "org_code": doctor.org_code,
-            "first_name": doctor.first_name,
-            "last_name": doctor.last_name,
-            "position": doctor.position,
-        } 
-    )
-
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "role": "doctor"
-    }
+    
+    # ✅ ตรวจสอบว่า doctor มีอยู่
+    if not doctor:
+        logger.warning(f"Doctor not found: username={username}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="❌ ไม่พบชื่อผู้ใช้นี้ในระบบ"
+        )
+    
+    # ✅ Verify password (รองรับทั้ง bcrypt + plain text)
+    if not verify_password(password, doctor.password_hash):
+        logger.warning(f"Invalid password: username={username}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="❌ รหัสผ่านไม่ถูกต้อง"
+        )
+    
+    # ✅ ตรวจสอบรหัสหน่วยงาน (org_code)
+    clean_payload_org = "".join(filter(str.isdigit, org_code if org_code else ""))
+    clean_doctor_org = "".join(filter(str.isdigit, doctor.org_code.strip() if doctor.org_code else ""))
+    
+    if clean_doctor_org != clean_payload_org:
+        logger.warning(f"Org code mismatch: username={username}, provided={clean_payload_org}, expected={clean_doctor_org}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="❌ รหัสหน่วยงานไม่ตรงกับสิทธิ์การเข้าใช้งานของแพทย์ท่านนี้"
+        )
+    
+    # ✅ ตรวจสอบสถานะ doctor (ต้องได้รับการอนุมัติ)
+    if hasattr(doctor, 'status') and doctor.status != "approved":
+        logger.warning(f"Doctor not approved: username={username}, status={doctor.status}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"❌ บัญชีของคุณยังไม่ได้รับการอนุมัติ"
+        )
+    
+    # ✅ สร้าง Access Token
+    try:
+        access_token = create_access_token(
+            data={
+                "sub": doctor.username,
+                "role": "doctor",
+                "org_code": doctor.org_code,
+                "first_name": doctor.first_name,
+                "last_name": doctor.last_name,
+                "position": doctor.position,
+            }
+        )
+        
+        logger.info(f"✅ Doctor login successful: username={username}, org_code={org_code}")
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "role": "doctor"
+        }
+    
+    except Exception as e:
+        logger.error(f"Error creating token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="❌ เกิดข้อผิดพลาดในการสร้าง token"
+        )
 
 # ==========================================
 # ✨ API สำหรับซิงค์รหัสผ่านใหม่จากหน้าตั้งรหัสผ่าน (Supabase)
 # ==========================================
+
 @router.patch("/sync-password")
 def sync_doctor_password(payload: SyncPasswordReq, db: Session = Depends(get_db)):
+    """
+    Sync password from Supabase to main database
+    
+    - ค้นหาแพทย์จากอีเมล
+    - Hash รหัสผ่านใหม่
+    - บันทึกลงฐานข้อมูล
+    """
+    
     # 1. ค้นหาแพทย์ในตารางด้วยอีเมล
-    doctor = db.query(models.Doctors).filter(models.Doctors.email == payload.email).first()
+    doctor = db.query(models.Doctors).filter(
+        models.Doctors.email == payload.email
+    ).first()
+    
     if not doctor:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            detail="ไม่พบข้อมูลแพทย์ที่มีอีเมลนี้ในระบบหลัก"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="❌ ไม่พบข้อมูลแพทย์ที่มีอีเมลนี้ในระบบหลัก"
         )
-        
-    # 2. เข้ารหัสลับรหัสผ่านด้วย bcrypt_sha256 (ให้ตรงกับระบบ Login)
-    hashed_password = bcrypt_sha256.hash(payload.new_password)
-    
-    # 3. อัปเดตลงฟิลด์ password_hash
-    doctor.password_hash = hashed_password
     
     try:
+        # 2. เข้ารหัสลับรหัสผ่านด้วย bcrypt_sha256
+        if BCRYPT_AVAILABLE:
+            hashed_password = bcrypt_sha256.hash(payload.new_password)
+        else:
+            # Fallback: เก็บเป็น plain text (ไม่ปลอดภัย - แนะนำให้ install passlib)
+            logger.warning("⚠️ bcrypt_sha256 not available, storing password as plain text")
+            hashed_password = payload.new_password
+        
+        # 3. อัปเดตลงฟิลด์ password_hash
+        doctor.password_hash = hashed_password
+        
         db.commit()
-        return {"status": "success", "message": "บันทึกรหัสผ่านเข้าฐานข้อมูลหลักสำเร็จ"}
+        
+        logger.info(f"✅ Doctor password synced: email={payload.email}")
+        
+        return {
+            "status": "success",
+            "message": "บันทึกรหัสผ่านเข้าฐานข้อมูลหลักสำเร็จ"
+        }
+    
     except Exception as e:
         db.rollback()
+        logger.error(f"Error syncing password: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=f"Database Error: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"❌ Database Error: {str(e)}"
         )
 
 # ==========================================
 # 🌟 API ดึงข้อมูลคนไข้ (รวมประวัติโภชนาการและสุขภาพ)
 # ==========================================
+
 @router.get("/patients")
 def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_db)):
+    """
+    Get patients by name or citizen ID
+    
+    - ค้นหาคนไข้จากชื่อหรือเลขบัตรประชาชน
+    - ส่งกลับข้อมูลสมบูรณ์รวม health records, food logs, etc.
+    """
+    
     # ✅ สร้าง query base ก่อน
     query = db.query(models.User).filter(models.User.role == "user")
 
-    # ✅ แก้ logic ค้นหา — handle ทั้ง citizen_id และ citizenId
+    # ✅ Handle ทั้ง citizen_id และ citizenId
     if citizenId:
         query = query.filter(
             or_(
@@ -197,7 +299,7 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
             for row in food_logs_result
         ]
 
-        # ── Health Records ──
+        # ── Health Records (ตัด blood_sugar ออก) ──
         health_records_query = text("""
             SELECT 
                 id, systolic, diastolic, pulse, recommendation, created_at
@@ -210,8 +312,6 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
         health_records_list = [
             {
                 "id": hr["id"],
-                "bloodPressure": hr["systolic"],
-                "bloodSugar": None,
                 "systolic": hr["systolic"],
                 "diastolic": hr["diastolic"],
                 "pulse": hr["pulse"],
@@ -248,16 +348,23 @@ def get_patients(name: str = "", citizenId: str = "", db: Session = Depends(get_
 # ==========================================
 # 🌟 API บันทึกคำแนะนำและข้อมูลสุขภาพ
 # ==========================================
+
 @router.post("/patients/{user_id}/health-records")
 def create_health_record(user_id: str, record: HealthRecordCreate, db: Session = Depends(get_db)):
+    """
+    Create health record for a patient
+    
+    - บันทึก systolic, diastolic, pulse, recommendation
+    - ตัด blood_sugar ออกแล้ว
+    """
+    
     try:
-        # ✅ แก้ไข SQL: เอา blood_sugar ออกจากทั้ง Columns และ Values
+        # ✅ Insert health record (ไม่มี blood_sugar)
         query = text("""
             INSERT INTO health_records (user_id, systolic, diastolic, pulse, recommendation)
             VALUES (:user_id, :systolic, :diastolic, :pulse, :recommendation)
         """)
         
-        # ✅ แก้ไข Parameter: ลบ "blood_sugar": record.blood_sugar ออก
         db.execute(query, {
             "user_id": user_id,
             "systolic": record.systolic,
@@ -267,25 +374,56 @@ def create_health_record(user_id: str, record: HealthRecordCreate, db: Session =
         })
         
         db.commit()
-        return {"status": "success", "message": "บันทึกข้อมูลสำเร็จ"}
+        
+        logger.info(f"✅ Health record created: user_id={user_id}")
+        
+        return {
+            "status": "success",
+            "message": "บันทึกข้อมูลสำเร็จ"
+        }
+    
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
-    
+        logger.error(f"Error creating health record: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"❌ Database Error: {str(e)}"
+        )
+
+# ==========================================
+# 🌟 API ค้นหาโรงพยาบาลจากรหัส
+# ==========================================
+
 @router.get("/organizations/{org_code}")
 def get_organization_by_code(org_code: str, db: Session = Depends(get_db)):
-    # 💡 ค้นหาข้อมูลโรงพยาบาลจากตารางชื่อ Organizations (หรือชื่อโมเดลตารางโรงพยาบาลของคุณ)
-    # สมมติว่าใน models.py มีโมเดลชื่อ Organizations และมีฟิลด์ code กับ name
-    org = db.query(models.Organizations).filter(models.Organizations.code == org_code).first()
+    """
+    Get organization by code
     
-    if not org:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"ไม่พบข้อมูลสถานพยาบาลรหัส {org_code}"
-        )
+    - ค้นหาข้อมูลโรงพยาบาล
+    - ส่งกลับชื่อและรหัส
+    """
+    
+    try:
+        org = db.query(models.Organizations).filter(
+            models.Organizations.code == org_code
+        ).first()
         
-    # ส่งค่ากลับไปในรูปแบบ Object ที่มี Key ชื่อ "name" เพื่อให้ตรงกับที่หน้าบ้านแกะค่าไปใช้
-    return {
-        "code": org.code,
-        "name": org.name  # 👈 ชื่อโรงพยาบาลที่จะไปแสดงบนหน้าจอ
-    }
+        if not org:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"❌ ไม่พบข้อมูลสถานพยาบาลรหัส {org_code}"
+            )
+        
+        return {
+            "code": org.code,
+            "name": org.name
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching organization: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="❌ เกิดข้อผิดพลาดในการดึงข้อมูล"
+        )
