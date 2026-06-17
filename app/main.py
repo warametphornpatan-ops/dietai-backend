@@ -7,7 +7,7 @@ import jwt
 import logging
 import os
 from app import session_manager
-#from app.middleware.session_middleware import SessionValidationMiddleware
+from app.middleware.session_middleware import SessionValidationMiddleware
 
 from app.database import get_db
 from .routers import (
@@ -29,7 +29,7 @@ from .routers import (
 from app.routers.doctor_approval import router as doctor_approval_router
 
 from app.routers.multi_detect import router as detect_router
-from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
+#from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
 from .config import settings
 
 # ===== App =====
