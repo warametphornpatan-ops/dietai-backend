@@ -572,8 +572,8 @@ def resolve_support_request(
     return {"message": "อัปเดตสถานะคำร้องเรียนสำเร็จ"}
 
 
-@router.get("/user")
-def get_all_user(
+@router.get("/all-system-users")
+def get_all_users(
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
@@ -582,10 +582,10 @@ def get_all_user(
     ดึง user ทั้งหมดในระบบ คืนเฉพาะ name / username / email
     ถ้าส่ง ?search= มา จะกรองด้วยชื่อ/username/email
     """
-    user = db.query(models.User).all()
+    users = db.query(models.User).all()
  
     result = []
-    for u in user:
+    for u in users:
         # ยืดหยุ่นกับชื่อคอลัมน์ (first_name หรือ firstName)
         first = getattr(u, "first_name", None) or getattr(u, "firstName", None) or ""
         last = getattr(u, "last_name", None) or getattr(u, "lastName", None) or ""
@@ -608,4 +608,4 @@ def get_all_user(
             or s in r["email"].lower()
         ]
  
-    return {"user": result, "total": len(result)}
+    return {"users": result, "total": len(result)}
