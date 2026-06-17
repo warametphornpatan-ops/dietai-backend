@@ -8,62 +8,28 @@ from .. import models
 from app.security import create_access_token
 import logging
 
-try:
-    from passlib.hash import bcrypt_sha256
-    BCRYPT_AVAILABLE = True
-except ImportError:
-    BCRYPT_AVAILABLE = False
-
 logger = logging.getLogger(__name__)
 
 # ==========================================
 # 🌟 Pydantic Schemas
 # ==========================================
 
-# Schema สำหรับสร้าง record (ตัด blood_sugar ออกถาวร)
 class HealthRecordCreate(BaseModel):
     systolic: Optional[int] = None
     diastolic: Optional[int] = None
     pulse: Optional[int] = None
     recommendation: str
 
-# Schema สำหรับ Login
 class DoctorLoginReq(BaseModel):
     username: str
     password: str
     org_code: str
 
-# ✨ Schema สำหรับรับข้อมูลซิงค์รหัสผ่านใหม่
 class SyncPasswordReq(BaseModel):
     email: str
     new_password: str
 
-router = APIRouter(
-    tags=["doctor"]
-)
-
-# ==========================================
-# 🔐 Helper: Verify Password (Backward Compatible)
-# ==========================================
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    ตรวจสอบ password - รองรับทั้ง:
-    1. bcrypt_sha256 hash (ใหม่)
-    2. plain text (ข้อมูลเก่า - backward compatible)
-    """
-    
-    # ✅ ลอง bcrypt_sha256 ก่อน (ถ้าติดตั้ง)
-    if BCRYPT_AVAILABLE:
-        try:
-            # ตรวจสอบว่า hashed_password ดูเหมือน bcrypt hash
-            if hashed_password.startswith('$2b$') or hashed_password.startswith('$2a$') or hashed_password.startswith('$2y$'):
-                return bcrypt_sha256.verify(plain_password, hashed_password)
-        except Exception as e:
-            logger.debug(f"bcrypt verification failed: {e}")
-    
-    # ✅ Fallback: ใช้ plain text comparison (ข้อมูลเก่า)
-    return plain_password == hashed_password
+router = APIRouter(tags=["doctor"])
 
 # ==========================================
 # 🌟 API สำหรับการเข้าสู่ระบบของแพทย์
@@ -102,8 +68,8 @@ def login_doctor(payload: DoctorLoginReq, db: Session = Depends(get_db)) -> Dict
             detail="❌ ไม่พบชื่อผู้ใช้นี้ในระบบ"
         )
     
-    # ✅ Verify password (รองรับทั้ง bcrypt + plain text)
-    if not verify_password(password, doctor.password_hash):
+    # ✅ Verify password - Plain text comparison
+    if password != doctor.password_hash:
         logger.warning(f"Invalid password: username={username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -167,7 +133,7 @@ def sync_doctor_password(payload: SyncPasswordReq, db: Session = Depends(get_db)
     Sync password from Supabase to main database
     
     - ค้นหาแพทย์จากอีเมล
-    - Hash รหัสผ่านใหม่
+    - บันทึกรหัสผ่านใหม่
     - บันทึกลงฐานข้อมูล
     """
     
@@ -183,16 +149,8 @@ def sync_doctor_password(payload: SyncPasswordReq, db: Session = Depends(get_db)
         )
     
     try:
-        # 2. เข้ารหัสลับรหัสผ่านด้วย bcrypt_sha256
-        if BCRYPT_AVAILABLE:
-            hashed_password = bcrypt_sha256.hash(payload.new_password)
-        else:
-            # Fallback: เก็บเป็น plain text (ไม่ปลอดภัย - แนะนำให้ install passlib)
-            logger.warning("⚠️ bcrypt_sha256 not available, storing password as plain text")
-            hashed_password = payload.new_password
-        
-        # 3. อัปเดตลงฟิลด์ password_hash
-        doctor.password_hash = hashed_password
+        # 2. อัปเดตรหัสผ่าน (เก็บเป็น plain text)
+        doctor.password_hash = payload.new_password
         
         db.commit()
         
