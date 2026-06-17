@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, text   # ✅ เพิ่ม text
 from passlib.hash import bcrypt_sha256
 from typing import Optional, Dict, List
 from pydantic import BaseModel
@@ -23,8 +23,15 @@ router = APIRouter()
 
 # ---------- Dependency สำหรับล็อกเฉพาะสิทธิ์ Admin ----------
 def get_current_admin(current_user: models.User = Depends(get_current_user)):
-    # เช็คว่า Token ที่ส่งมามี Role เป็น admin หรือไม่
-    if getattr(current_user, "role", None) != "admin":
+    """
+    ✅ FIX: ตรวจสิทธิ์ admin แบบยืดหยุ่น
+    - ผ่านถ้า role == "admin"
+    - หรือผ่านถ้า object มี attribute admin_id (เป็นแถวจากตาราง admins)
+      กันกรณีโมเดล Admin ไม่มีคอลัมน์ role ซึ่งทำให้ getattr คืน None → 403
+    """
+    role = getattr(current_user, "role", None)
+    is_admin = (role == "admin") or hasattr(current_user, "admin_id")
+    if not is_admin:
         raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์เข้าถึงข้อมูลนี้ (เฉพาะแอดมินเท่านั้น)")
     return current_user
 
@@ -76,7 +83,7 @@ def check_username_global(
 # --- 2. API ลงทะเบียนผู้ดูแลระบบ (ล็อกสิทธิ์เฉพาะแอดมินเดิมทำได้) ---
 @router.post("/register")
 def register_admin(
-    payload: schemas.AdminCreate, 
+    payload: schemas.AdminCreate,
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, str]:
@@ -132,9 +139,8 @@ def get_admins(
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, List[Dict[str, str]]]:
-    # ดึงเฉพาะแอดมินที่อยู่องค์กรเดียวกันกับแอดมินคนนี้เท่านั้น
     admins = db.query(models.Admin).filter(models.Admin.org_code == current_admin.org_code).all()
-    
+
     result: List[Dict[str, str]] = []
     for a in admins:
         result.append({
@@ -156,9 +162,8 @@ def get_doctors(
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, List[Dict[str, str]]]:
-    # ดึงเฉพาะแพทย์ที่อยู่องค์กรเดียวกันกับแอดมินคนนี้
     doctors = db.query(models.Doctors).filter(models.Doctors.org_code == current_admin.org_code).all()
-    
+
     result: List[Dict[str, str]] = []
     for doc in doctors:
         result.append({
@@ -176,7 +181,7 @@ def get_doctors(
 # --- 5. API ลงทะเบียนบุคลากรทางการแพทย์ (🔒 ล็อกสิทธิ์) ---
 @router.post("/doctors")
 def add_doctor(
-    payload: schemas.DoctorCreate, 
+    payload: schemas.DoctorCreate,
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, str]:
@@ -206,7 +211,7 @@ def add_doctor(
     hashed_pwd = bcrypt_sha256.hash(payload.password)
 
     new_doctor = models.Doctors(
-        org_code=current_admin.org_code, # บังคับให้ใช้ org_code เดียวกับแอดมินผู้สร้าง
+        org_code=current_admin.org_code,
         citizen_id=payload.citizen_id,
         first_name=payload.first_name,
         last_name=payload.last_name,
@@ -223,17 +228,16 @@ def add_doctor(
 # --- 6. API แก้ไขข้อมูลแพทย์ ---
 @router.put("/doctors/{doctor_id}")
 def update_doctor(
-    doctor_id: str, 
-    payload: DoctorUpdate, 
+    doctor_id: str,
+    payload: DoctorUpdate,
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, str]:
-    # ดึงแพทย์และเช็คว่าอยู่ในองค์กรเดียวกันไหม
     doctor = db.query(models.Doctors).filter(
         models.Doctors.id == doctor_id,
         models.Doctors.org_code == current_admin.org_code
     ).first()
-    
+
     if not doctor:
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแพทย์ในระบบของคุณ")
 
@@ -275,7 +279,7 @@ def update_doctor(
 # --- 7. API ลบแพทย์ ---
 @router.delete("/doctors/{doctor_id}")
 def delete_doctor(
-    doctor_id: str, 
+    doctor_id: str,
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, str]:
@@ -283,7 +287,7 @@ def delete_doctor(
         models.Doctors.id == doctor_id,
         models.Doctors.org_code == current_admin.org_code
     ).first()
-    
+
     if not doctor:
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแพทย์ในหน่วยงานของคุณ")
 
@@ -428,7 +432,7 @@ def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 
-# --- 12. API แก้ไขข้อมูล Admin Profile (ตัวเอง) (🔒 ล็อกให้อัปเดตได้เฉพาะไอดีตัวเองที่ดึงจาก Token เท่านั้น) ---
+# --- 12. API แก้ไขข้อมูล Admin Profile (ตัวเอง) ---
 @router.patch("/profile/{admin_id}")
 def update_admin_profile(
     admin_id: str,
@@ -436,8 +440,7 @@ def update_admin_profile(
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, str]:
-    
-    # ป้องกันแอดมินคนอื่นมั่วเปลี่ยนไอดีบน URL เพื่อยิงข้ามไปแก้โปรไฟล์ของคนอื่น
+
     if str(current_admin.admin_id) != admin_id:
          raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์แก้ไขโปรไฟล์ของผู้อื่น")
 
@@ -453,7 +456,7 @@ def update_admin_profile(
         ).first()
         if existing_admin:
             raise HTTPException(status_code=400, detail="อีเมลนี้ถูกใช้งานแล้ว")
-        
+
         existing_doctor = db.query(models.Doctors).filter(
             func.lower(models.Doctors.email) == email_lower
         ).first()
@@ -481,10 +484,10 @@ def update_admin_profile(
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 
-# --- 13. API ลบแอดมิน (✅ แก้ไขวงเล็บ ปิดวงเล็บให้ถูกบล็อกฟังก์ชันอย่างถูกต้อง) ---
+# --- 13. API ลบแอดมิน ---
 @router.delete("/{admin_id}")
 def delete_admin(
-    admin_id: str, 
+    admin_id: str,
     db: Session = Depends(get_db),
     current_admin: models.User = Depends(get_current_admin)
 ) -> Dict[str, str]:
@@ -492,11 +495,9 @@ def delete_admin(
     if not admin:
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลผู้ดูแลระบบ")
 
-    # เช็คว่าแอดมินที่กำลังจะลบ อยู่ในหน่วยงานเดียวกันกับผู้ลบหรือไม่
     if admin.org_code != current_admin.org_code:
         raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์ลบผู้ดูแลระบบของหน่วยงานอื่น")
 
-    # กันลบแอดมินคนสุดท้ายของหน่วยงาน (ไม่งั้นหน่วยงานจะไม่มีแอดมินเหลือ)
     admin_count = db.query(models.Admin).filter(
         models.Admin.org_code == admin.org_code
     ).count()
@@ -516,3 +517,56 @@ def delete_admin(
             detail="ไม่สามารถลบผู้ดูแลระบบได้เนื่องจากมีข้อมูลอื่นอ้างอิงอยู่"
         )
     return {"message": "ลบแอดมินสำเร็จ"}
+
+
+# ============================================================
+# ✅ FIX 2: เพิ่ม endpoint สำหรับ "รายการแจ้งปัญหา" (Support Requests)
+# ============================================================
+# ตาราง support_requests มีคอลัมน์: id, email, request_type,
+#   description, status, created_at
+# frontend อ่านชื่อ contact_info / details จึงต้อง map ให้ตรง
+
+# --- 14. ดึงรายการแจ้งปัญหาที่ยังค้างอยู่ ---
+@router.get("/support-requests")
+def get_support_requests(
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+):
+    rows = db.execute(text("""
+        SELECT id, email, request_type, description, status, created_at
+        FROM support_requests
+        WHERE status = 'pending' OR status IS NULL
+        ORDER BY created_at DESC
+    """)).fetchall()
+
+    requests = []
+    for r in rows:
+        requests.append({
+            "id": r.id,
+            "contact_info": r.email,            # map email → contact_info
+            "details": r.description or "",      # map description → details
+            "request_type": r.request_type,
+            "status": r.status or "pending",
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+
+    return {"requests": requests}
+
+
+# --- 15. กด "ติดต่อแล้ว" → เปลี่ยน status เป็น resolved ---
+@router.patch("/support-requests/{request_id}/resolve")
+def resolve_support_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+) -> Dict[str, str]:
+    result = db.execute(
+        text("UPDATE support_requests SET status = 'resolved' WHERE id = :id"),
+        {"id": request_id},
+    )
+    db.commit()
+
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="ไม่พบคำร้องนี้ในระบบ")
+
+    return {"message": "อัปเดตสถานะคำร้องเรียนสำเร็จ"}
