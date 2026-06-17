@@ -322,6 +322,11 @@ def me(current_user: models.User = Depends(get_current_user)):
         "bmr":              current_user.bmr,
         "bmi":              current_user.bmi,
         "goal":             current_user.goal,
+
+        "consumed_calories": int(summary["total_calories"]),
+        "consumed_carbs":    int(summary["total_carbs"]),
+        "consumed_protein":  int(summary["total_protein"]),
+        "consumed_fat":      int(summary["total_fat"])
     }
 
 
