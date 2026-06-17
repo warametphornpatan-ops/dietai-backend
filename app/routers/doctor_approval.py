@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import DoctorApplication, Doctor
+from app.models import DoctorApplication, Doctors  # ✅ แก้: Doctor → Doctors
 from app.core.security import get_current_user
 
 router = APIRouter(prefix="/admins/doctors", tags=["doctors"])
@@ -83,7 +83,7 @@ async def approve_doctor_application(
     try:
         if request.status == "approved":
             # ✅ APPROVE: บันทึกเข้า doctors table
-            new_doctor = Doctor(
+            new_doctor = Doctors(  # ✅ แก้: Doctor → Doctors
                 org_code=app.org_code,
                 citizen_id=app.citizen_id,
                 first_name=app.first_name,
