@@ -21,9 +21,25 @@ security = HTTPBearer()
 logger = logging.getLogger(__name__)
 
 # ✅ Supabase Admin Client (Service Role Key)
-supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")
-supabase_service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-supabase_admin = create_client(supabase_url, supabase_service_key)
+supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+supabase_service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+# ⚠️ ตรวจสอบ environment variables
+if not supabase_url:
+    logger.warning("⚠️ NEXT_PUBLIC_SUPABASE_URL is not set!")
+if not supabase_service_key:
+    logger.warning("⚠️ SUPABASE_SERVICE_ROLE_KEY is not set!")
+
+# ✅ สร้าง Supabase Admin Client
+supabase_admin = None
+if supabase_url and supabase_service_key:
+    try:
+        supabase_admin = create_client(supabase_url, supabase_service_key)
+        logger.info("✅ Supabase Admin Client initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Supabase Admin Client initialization failed: {e}")
+else:
+    logger.error("❌ Missing Supabase environment variables")
 
 # ============================================================
 # 📝 REQUEST/RESPONSE MODELS
@@ -109,6 +125,13 @@ async def approve_doctor_application(
     - status: "approved" หรือ "rejected"
     """
     
+    # ❌ ตรวจสอบ supabase_admin มี ค่า
+    if not supabase_admin:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase ยังไม่พร้อม - ลองใหม่ในอีกสักครู่"
+        )
+    
     # ✅ ตรวจสอบ status ถูกต้อง
     if request.status not in ["approved", "rejected"]:
         raise HTTPException(
@@ -181,6 +204,8 @@ async def approve_doctor_application(
             # ✅ ลบจาก doctor_applications
             supabase_admin.table("doctor_applications").delete().eq("id", application_id).execute()
             
+            logger.info(f"✅ Doctor approved: {app['first_name']} {app['last_name']} (ID: {doctor_id})")
+            
             return ApproveDoctorResponse(
                 message=f"✅ อนุมัติ {app['first_name']} {app['last_name']} สำเร็จ",
                 doctor_id=doctor_id,
@@ -190,6 +215,8 @@ async def approve_doctor_application(
         else:  # rejected
             # ❌ REJECT: ลบออก
             supabase_admin.table("doctor_applications").delete().eq("id", application_id).execute()
+            
+            logger.info(f"❌ Doctor rejected: {app['first_name']} {app['last_name']}")
             
             return ApproveDoctorResponse(
                 message=f"❌ ปฏิเสธ {app['first_name']} {app['last_name']} สำเร็จ",
