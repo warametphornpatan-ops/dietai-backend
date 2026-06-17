@@ -570,3 +570,42 @@ def resolve_support_request(
         raise HTTPException(status_code=404, detail="ไม่พบคำร้องนี้ในระบบ")
 
     return {"message": "อัปเดตสถานะคำร้องเรียนสำเร็จ"}
+
+
+@router.get("/user")
+def get_all_user(
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(get_current_admin)
+):
+    """
+    ดึง user ทั้งหมดในระบบ คืนเฉพาะ name / username / email
+    ถ้าส่ง ?search= มา จะกรองด้วยชื่อ/username/email
+    """
+    user = db.query(models.User).all()
+ 
+    result = []
+    for u in user:
+        # ยืดหยุ่นกับชื่อคอลัมน์ (first_name หรือ firstName)
+        first = getattr(u, "first_name", None) or getattr(u, "firstName", None) or ""
+        last = getattr(u, "last_name", None) or getattr(u, "lastName", None) or ""
+        full_name = f"{first} {last}".strip()
+ 
+        result.append({
+            "id": str(getattr(u, "id", "")),
+            "name": full_name or "—",
+            "username": getattr(u, "username", "") or "",
+            "email": getattr(u, "email", "") or "",
+        })
+ 
+    # กรองตามคำค้นหา (ถ้ามี)
+    if search:
+        s = search.strip().lower()
+        result = [
+            r for r in result
+            if s in r["name"].lower()
+            or s in r["username"].lower()
+            or s in r["email"].lower()
+        ]
+ 
+    return {"user": result, "total": len(result)}
