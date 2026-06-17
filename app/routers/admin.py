@@ -545,6 +545,7 @@ def get_support_requests(
             "id": r.id,
             "contact_info": r.email,            # map email → contact_info
             "details": r.description or "",      # map description → details
+            "name": r.name or "", 
             "request_type": r.request_type,
             "status": r.status or "pending",
             "created_at": r.created_at.isoformat() if r.created_at else None,
