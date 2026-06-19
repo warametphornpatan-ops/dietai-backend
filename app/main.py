@@ -132,7 +132,7 @@ def health_check(db: Session = Depends(get_db)):
 
 
 # ===== Routers =====
-app.include_router(user.router,                prefix="/user",         tags=["users"])
+#app.include_router(user.router,                prefix="/user",         tags=["users"])
 app.include_router(foods.router,               prefix="/foods",        tags=["foods"])
 app.include_router(detect_router)
 app.include_router(food_logs.router,           prefix="/foods")
@@ -147,6 +147,7 @@ app.include_router(admin.router, prefix="/api/admins", tags=["admin"])
 app.include_router(admin.router, prefix="/admins", tags=["admin"])
 app.include_router(organization.router)
 app.include_router(support_router.router)
+app.include_router(user.router, prefix="/api/users", tags=["users"])
 
 # ✅ เพิ่มบรรทัดนี้
 app.include_router(doctor_approval_router)
