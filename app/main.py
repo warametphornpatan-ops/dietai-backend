@@ -139,10 +139,11 @@ app.include_router(doctor.router,              prefix="/api/doctors",   tags=["d
 app.include_router(doctor.router,              prefix="/doctors",       tags=["doctor"])
 app.include_router(admin.router,               prefix="/api/admins",    tags=["admin"])
 app.include_router(admin.router,               prefix="/admins",        tags=["admin"])
-app.include_router(organization.router)
+app.include_router(organization.router,        prefix="/api/organizations", tags=["organizations"])
 app.include_router(support_router.router)
 app.include_router(user.router,                prefix="/api/users",     tags=["users"])
 app.include_router(auth.router,                prefix="/api/auth",      tags=["auth"])  # ✅ AUTH ROUTER
+app.include_router(auth.router,                prefix="/api/user",      tags=["auth"])  # ✅ User login alias
 app.include_router(auth.router,                prefix="/api/admin",     tags=["auth"])  # ✅ Admin login alias
 app.include_router(auth.router,                prefix="/api/doctor",    tags=["auth"])  # ✅ Doctor login alias
 app.include_router(doctor_approval_router)
