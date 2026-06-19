@@ -23,13 +23,13 @@ from .routers import (
     food_logs,
     organization,
     support_router,
-    auth_session,  # ✅ เพิ่มบรรทัดนี้
+    auth,  # ✅ Auth Router
+    auth_session,
 )
-# ✅ เพิ่มบรรทัดนี้
+# ✅ Doctor Approval Router
 from app.routers.doctor_approval import router as doctor_approval_router
 
 from app.routers.multi_detect import router as detect_router
-#from .middleware import RateLimitMiddleware, ErrorHandlingMiddleware
 from .config import settings
 
 # ===== App =====
@@ -64,7 +64,7 @@ allowed_origins = [
     "https://dietai-admin.vercel.app",
 ]
 
-# ✅ เพิ่ม Environment variable สำหรับ dynamic origins
+# ✅ Environment variable สำหรับ dynamic origins
 extra_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
 for origin in extra_origins:
     if origin.strip() and origin.strip() not in allowed_origins:
@@ -72,9 +72,9 @@ for origin in extra_origins:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,  # ✅ Allow all configured origins
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # ✅ รวม OPTIONS สำหรับ preflight
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
         "Authorization",
         "Content-Type",
@@ -84,21 +84,17 @@ app.add_middleware(
         "X-CSRF-Token",
         "Access-Control-Allow-Origin",
     ],
-    max_age=3600,  # ✅ Cache preflight response 1 hour
+    max_age=3600,
     expose_headers=[
         "Content-Type",
         "Authorization",
     ]
 )
 
-# ✅ เพิ่ม Session Validation Middleware (หลัง CORS)
+# ✅ Session Validation Middleware
 app.add_middleware(SessionValidationMiddleware)
 
-# ✅ Log CORS config ตอน startup
 logger.info(f"CORS configured with origins: {allowed_origins}")
-
-#app.add_middleware(RateLimitMiddleware, requests_per_hour=settings.rate_limit_requests)
-#app.add_middleware(ErrorHandlingMiddleware)
 
 
 @app.middleware("http")
@@ -115,7 +111,6 @@ async def add_security_headers(request, call_next):
 def health_check(db: Session = Depends(get_db)):
     """ตรวจสอบสถานะ API และ Database"""
     try:
-        # Test database connection
         db.execute(text("SELECT 1"))
         return {
             "status": "ok",
@@ -132,7 +127,6 @@ def health_check(db: Session = Depends(get_db)):
 
 
 # ===== Routers =====
-#app.include_router(user.router,                prefix="/user",         tags=["users"])
 app.include_router(foods.router,               prefix="/foods",        tags=["foods"])
 app.include_router(detect_router)
 app.include_router(food_logs.router,           prefix="/foods")
@@ -141,18 +135,15 @@ app.include_router(alerts.router,              prefix="/alerts",       tags=["al
 app.include_router(food_images.router)
 app.include_router(user_reset_password.router)
 app.include_router(staff_reset_password.router)
-app.include_router(doctor.router, prefix="/api/doctors", tags=["doctor"])
-app.include_router(doctor.router, prefix="/doctors", tags=["doctor"])
-app.include_router(admin.router, prefix="/api/admins", tags=["admin"])
-app.include_router(admin.router, prefix="/admins", tags=["admin"])
+app.include_router(doctor.router,              prefix="/api/doctors",   tags=["doctor"])
+app.include_router(doctor.router,              prefix="/doctors",       tags=["doctor"])
+app.include_router(admin.router,               prefix="/api/admins",    tags=["admin"])
+app.include_router(admin.router,               prefix="/admins",        tags=["admin"])
 app.include_router(organization.router)
 app.include_router(support_router.router)
-app.include_router(user.router, prefix="/api/users", tags=["users"])
-
-# ✅ เพิ่มบรรทัดนี้
+app.include_router(user.router,                prefix="/api/users",     tags=["users"])
+app.include_router(auth.router,                prefix="/api/auth",      tags=["auth"])  # ✅ AUTH ROUTER
 app.include_router(doctor_approval_router)
-
-# ✅ เพิ่ม Auth Session Router
 app.include_router(auth_session.router)
 
 
@@ -168,7 +159,6 @@ async def get_current_user_profile(
     try:
         secret = getattr(settings, "secret_key", getattr(settings, "jwt_secret", "YOUR_SECRET_KEY"))
         payload = jwt.decode(token, secret, algorithms=["HS256"])
-        # sub เก็บ admin_id (UUID) ไม่ใช่ username
         user_id = payload.get("sub")
     except Exception as e:
         logger.error(f"Token decode failed: {e}")
@@ -178,7 +168,6 @@ async def get_current_user_profile(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="ไม่พบข้อมูลผู้ใช้ใน Token")
 
     # 2. ค้นหาใน admins
-    # ✅ แก้ไข: ใช้ first_name/last_name ให้ตรงกับ schema ตาราง admins จริง
     result = db.execute(
         text("""
             SELECT admin_id, org_code, first_name, last_name, email, username
@@ -199,17 +188,17 @@ async def get_current_user_profile(
     return {
         "admin_id":   str(result["admin_id"]),
         "org_code":   result["org_code"],
-        "first_name": result["first_name"],   # ✅ ตรงกับ AdminResponse schema
+        "first_name": result["first_name"],
         "last_name":  result["last_name"],
         "email":      result["email"],
         "username":   result["username"],
     }
 
-# ===== ดักจับ Endpoint พิเศษสำหรับระบบแอดมิน =====
 
+# ===== Admin Users Endpoint =====
 @app.get("/admins/users", tags=["admin"])
 def force_get_users_for_frontend(search: str = None, db: Session = Depends(get_db)):
-    """แก้ปัญหา 405 ดึงรายชื่อผู้ใช้ทั้งหมดในตาราง users ส่งกลับหน้าบ้านทันที"""
+    """ดึงรายชื่อผู้ใช้ทั้งหมด"""
     try:
         query_str = "SELECT user_id, first_name, last_name, email, username, is_active FROM users"
         bind_params = {}
@@ -224,6 +213,7 @@ def force_get_users_for_frontend(search: str = None, db: Session = Depends(get_d
         raise HTTPException(status_code=500, detail="ไม่สามารถโหลดข้อมูลผู้ใช้จากฐานข้อมูลได้")
 
 
+# ===== Root =====
 @app.get("/")
 def root():
     return {"message": "🚀 Smart Carb Analyzer API Ready"}
