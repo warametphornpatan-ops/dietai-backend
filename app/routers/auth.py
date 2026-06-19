@@ -578,3 +578,18 @@ def create_support_request(payload: SupportRequestCreate, db: Session = Depends(
             status_code=500, 
             detail="เกิดข้อผิดพลาดของระบบ ไม่สามารถส่งคำร้องได้ในขณะนี้"
         )
+
+
+# ---------- Alias Endpoints for Admin & Doctor Login ----------
+# ให้ Admin/Doctor login เรียก /api/admin/login และ /api/doctor/login แทน
+
+@router.post("/admin-login", response_model=TokenResponse)
+async def admin_login(request: LoginReq, db: Session = Depends(get_db)):
+    """Admin login - routes to unified login endpoint"""
+    return await login(request, db)
+
+
+@router.post("/doctor-login", response_model=TokenResponse)
+async def doctor_login(request: LoginReq, db: Session = Depends(get_db)):
+    """Doctor login - routes to unified login endpoint"""
+    return await login(request, db)

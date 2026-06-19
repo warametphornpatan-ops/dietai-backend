@@ -143,6 +143,8 @@ app.include_router(organization.router)
 app.include_router(support_router.router)
 app.include_router(user.router,                prefix="/api/users",     tags=["users"])
 app.include_router(auth.router,                prefix="/api/auth",      tags=["auth"])  # ✅ AUTH ROUTER
+app.include_router(auth.router,                prefix="/api/admin",     tags=["auth"])  # ✅ Admin login alias
+app.include_router(auth.router,                prefix="/api/doctor",    tags=["auth"])  # ✅ Doctor login alias
 app.include_router(doctor_approval_router)
 app.include_router(auth_session.router)
 
