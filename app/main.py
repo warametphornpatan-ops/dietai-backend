@@ -127,25 +127,23 @@ def health_check(db: Session = Depends(get_db)):
 
 
 # ===== Routers =====
-app.include_router(foods.router,               prefix="/foods",        tags=["foods"])
-app.include_router(detect_router)
-app.include_router(food_logs.router,           prefix="/foods")
-app.include_router(meals.router,               prefix="/meals",        tags=["meals"])
-app.include_router(alerts.router,              prefix="/alerts",       tags=["alerts"])
+app.include_router(foods.router,               prefix="/api/foods",         tags=["foods"])       # ✅ เพิ่ม /api
+app.include_router(detect_router)                                                                  # ✅ ต้องมี /api/food/detect ใน router file เอง
+app.include_router(food_logs.router,           prefix="/api/foods")                               # ✅ เพิ่ม /api
+app.include_router(meals.router,               prefix="/api/meals",         tags=["meals"])       # ✅ เพิ่ม /api
+app.include_router(alerts.router,              prefix="/api/alerts",        tags=["alerts"])      # ✅ เพิ่ม /api
 app.include_router(food_images.router)
 app.include_router(user_reset_password.router)
 app.include_router(staff_reset_password.router)
-app.include_router(doctor.router,              prefix="/api/doctors",   tags=["doctor"])
-app.include_router(doctor.router,              prefix="/doctors",       tags=["doctor"])
-app.include_router(admin.router,               prefix="/api/admins",    tags=["admin"])
-app.include_router(admin.router,               prefix="/admins",        tags=["admin"])
-app.include_router(organization.router,        prefix="/api/organizations", tags=["organizations"])
+app.include_router(doctor.router,              prefix="/api/doctors",       tags=["doctor"])      # ✅ คงเดิม
+app.include_router(admin.router,               prefix="/api/admins",        tags=["admin"])       # ✅ คงเดิม
+app.include_router(organization.router,        prefix="/api/organizations", tags=["organizations"]) # ✅ คงเดิม
 app.include_router(support_router.router)
-app.include_router(user.router,                prefix="/api/users",     tags=["users"])
-app.include_router(auth.router,                prefix="/api/auth",      tags=["auth"])  # ✅ AUTH ROUTER
-app.include_router(auth.router,                prefix="/api/user",      tags=["auth"])  # ✅ User login alias
-app.include_router(auth.router,                prefix="/api/admin",     tags=["auth"])  # ✅ Admin login alias
-app.include_router(auth.router,                prefix="/api/doctor",    tags=["auth"])  # ✅ Doctor login alias
+app.include_router(user.router,                prefix="/api/users",         tags=["users"])       # ✅ คงเดิม
+app.include_router(auth.router,                prefix="/api/auth",          tags=["auth"])        # ✅ AUTH ROUTER
+app.include_router(auth.router,                prefix="/api/user",          tags=["auth"])        # ✅ User login alias
+app.include_router(auth.router,                prefix="/api/admin",         tags=["auth"])        # ✅ Admin login alias
+app.include_router(auth.router,                prefix="/api/doctor",        tags=["auth"])        # ✅ Doctor login alias
 app.include_router(doctor_approval_router)
 app.include_router(auth_session.router)
 
