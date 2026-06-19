@@ -138,7 +138,7 @@ app.include_router(staff_reset_password.router)
 app.include_router(doctor.router,              prefix="/api/doctors",       tags=["doctor"])      # ✅ คงเดิม
 app.include_router(admin.router,               prefix="/api/admins",        tags=["admin"])       # ✅ คงเดิม
 app.include_router(organization.router,        prefix="/api/organizations", tags=["organizations"]) # ✅ คงเดิม
-app.include_router(support_router.router)
+app.include_router(support_router.router, prefix="/api")
 app.include_router(user.router,                prefix="/api/users",         tags=["users"])       # ✅ คงเดิม
 app.include_router(auth.router,                prefix="/api/auth",          tags=["auth"])        # ✅ AUTH ROUTER
 app.include_router(auth.router,                prefix="/api/user",          tags=["auth"])        # ✅ User login alias
