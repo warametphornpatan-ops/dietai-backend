@@ -167,3 +167,7 @@ class SupportRequestCreate(BaseModel):
     email: str
     request_type: str 
     description: Optional[str] = None
+
+class UserUpdate(BaseModel):
+    name: str
+    email: str
