@@ -7,7 +7,7 @@ router = APIRouter(
     tags=["organization"]
 )
 
-@router.get("/organizations/{org_code}")
+@router.get("/{org_code}")
 def check_organization(org_code: str, db: Session = Depends(get_db)):
     # 1. หน้าบ้านอาจส่งมาเป็น 'CA0032045' หรือ '32045' ล้างให้เหลือเฉพาะตัวเลข
     clean_input = "".join(filter(str.isdigit, org_code))
