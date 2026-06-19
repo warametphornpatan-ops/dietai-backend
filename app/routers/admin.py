@@ -610,3 +610,17 @@ def get_all_users(
         ]
 
     return {"users": result, "total": len(result)}
+
+@router.get("/me")
+def get_admin_profile(
+    current_admin: models.User = Depends(get_current_admin)
+):
+    return {
+        "id": str(current_admin.admin_id),
+        "admin_id": str(current_admin.admin_id),
+        "first_name": current_admin.first_name,
+        "last_name": current_admin.last_name,
+        "email": current_admin.email,
+        "org_code": current_admin.org_code,
+        "role": "admin"
+    }
