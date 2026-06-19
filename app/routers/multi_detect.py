@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 import httpx
 import io
 
-router = APIRouter(prefix="/food", tags=["food-recognition"])
+router = APIRouter(prefix="/api/food", tags=["food-recognition"])
 
 HF_URL = "https://waramet-yolo-brain-api.hf.space/detect"
 
