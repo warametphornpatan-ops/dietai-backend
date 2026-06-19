@@ -72,19 +72,6 @@ class SupportRequestCreate(BaseModel):
     description: Optional[str] = None
 
 
-@router.post("/support-requests")
-def create_support_request(payload: SupportRequestCreate, db: Session = Depends(get_db)):
-    # นำข้อมูลเข้าตาราง support_requests
-    # (อย่าลืม import models จากไฟล์ models.py ที่เราเพิ่มคลาสไว้ก่อนหน้านี้ด้วยนะครับ)
-    new_request = models.SupportRequest(
-        email=payload.email,
-        request_type=payload.request_type,
-        description=payload.description,
-        status="pending" # ค่าเริ่มต้น
-    )
-    db.add(new_request)
-    db.commit()
-    return {"message": "ส่งคำร้องสำเร็จ กรุณารอการติดต่อกลับจากเจ้าหน้าที่"}
 
 # ---------- Register ----------
 @router.post("/register")
