@@ -6,7 +6,7 @@ from supabase import create_client
 from app.routers.user import get_current_user
 
 router = APIRouter(
-    prefix="/food-images",
+    prefix="/api/food-images",
     tags=["Food Images"]
 )
 
