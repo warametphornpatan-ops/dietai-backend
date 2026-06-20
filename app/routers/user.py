@@ -527,7 +527,7 @@ def get_user_profile_history(
             "weight_kg": float(row["weight_kg"]) if row["weight_kg"] is not None else None,
             "height_cm": float(row["height_cm"]) if row["height_cm"] is not None else None,
             "health_info": row["health_info"],
-            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "createdAt": row["created_at"].isoformat() if row["created_at"] else None,
         }
         for row in result
     ]
