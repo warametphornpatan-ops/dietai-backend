@@ -417,7 +417,7 @@ def get_my_health_records(
             "diastolic":      row["diastolic"],
             "pulse":          row["pulse"],
             "recommendation": row["recommendation"],
-            "created_at":     row["created_at"].isoformat() if row["created_at"] else None, # 🎉 แก้เป็นตัวพิมพ์เล็กแบบมีขีดล่างแล้ว
+            "createdAt":      row["created_at"].isoformat() if row["created_at"] else None,  # ✅ เปลี่ยนเป็น camelCase
         }
         for row in result
     ]
