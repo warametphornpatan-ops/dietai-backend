@@ -206,6 +206,12 @@ async def approve_doctor_application(
             
             logger.info(f"✅ Doctor approved: {app['first_name']} {app['last_name']} (ID: {doctor_id})")
             
+            # ✅ ส่งอีเมลแจ้งเตือนอนุมัติ
+            doctor_email = app.get("email")
+            if doctor_email:
+                full_name = f"{app.get('first_name', '')} {app.get('last_name', '')}".strip()
+                send_doctor_approved_notification(to_email=doctor_email, full_name=full_name)
+            
             return ApproveDoctorResponse(
                 message=f"✅ อนุมัติ {app['first_name']} {app['last_name']} สำเร็จ",
                 doctor_id=doctor_id,
@@ -217,6 +223,12 @@ async def approve_doctor_application(
             supabase_admin.table("doctor_applications").delete().eq("id", application_id).execute()
             
             logger.info(f"❌ Doctor rejected: {app['first_name']} {app['last_name']}")
+            
+            # ✅ ส่งอีเมลแจ้งเตือนปฏิเสธ
+            doctor_email = app.get("email")
+            if doctor_email:
+                full_name = f"{app.get('first_name', '')} {app.get('last_name', '')}".strip()
+                send_doctor_rejected_notification(to_email=doctor_email, full_name=full_name)
             
             return ApproveDoctorResponse(
                 message=f"❌ ปฏิเสธ {app['first_name']} {app['last_name']} สำเร็จ",
