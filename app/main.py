@@ -146,7 +146,7 @@ app.include_router(auth.router,                prefix="/api/auth",          tags
 app.include_router(auth.router,                prefix="/api/user",          tags=["auth"])        # ✅ User login alias
 app.include_router(auth.router,                prefix="/api/admin",         tags=["auth"])        # ✅ Admin login alias
 app.include_router(auth.router,                prefix="/api/doctor",        tags=["auth"])        # ✅ Doctor login alias
-app.include_router(doctor_approval_router)
+app.include_router(doctor_approval_router, prefix="/api")
 app.include_router(auth_session.router)
 
 
