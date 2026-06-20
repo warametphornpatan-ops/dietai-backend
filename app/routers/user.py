@@ -71,6 +71,10 @@ class SupportRequestCreate(BaseModel):
     request_type: str
     description: Optional[str] = None
 
+class AdminUserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+
 
 
 # ---------- Register ----------
@@ -589,3 +593,62 @@ def create_support_request(payload: SupportRequestCreate, db: Session = Depends(
             status_code=500, 
             detail="เกิดข้อผิดพลาดของระบบ ไม่สามารถส่งคำร้องได้ในขณะนี้"
         )
+
+@router.put("/{user_id}")
+def admin_update_user(
+    user_id: str,
+    payload: AdminUserUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลผู้ใช้")
+
+    if payload.name is not None and payload.name.strip():
+        parts = payload.name.strip().split(" ", 1)
+        user.firstName = parts[0]
+        user.lastName = parts[1] if len(parts) > 1 else ""
+
+    if payload.email is not None and payload.email.strip():
+        existing = db.query(models.User).filter(
+            models.User.email == payload.email.strip(),
+            models.User.id != user_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="อีเมลนี้ถูกใช้งานแล้ว")
+        user.email = payload.email.strip()
+
+    try:
+        db.commit()
+        db.refresh(user)
+        first = getattr(user, "firstName", "") or ""
+        last = getattr(user, "lastName", "") or ""
+        return {
+            "message": "แก้ไขข้อมูลสำเร็จ",
+            "id": str(user.id),
+            "name": f"{first} {last}".strip(),
+            "email": user.email or "",
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
+
+
+@router.delete("/{user_id}")
+def admin_delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลผู้ใช้")
+
+    try:
+        db.delete(user)
+        db.commit()
+        return {"message": "ลบผู้ใช้สำเร็จ"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="ไม่สามารถลบได้เนื่องจากมีข้อมูลอ้างอิงอยู่")
