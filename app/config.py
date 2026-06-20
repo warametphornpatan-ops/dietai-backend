@@ -34,6 +34,10 @@ class Settings(BaseModel):
     roboflow_api_key: Optional[str] = None
     secret_org_code: str
 
+    # ✅ เพิ่มตรงนี้ — Email (Gmail SMTP)
+    gmail_address: str = ""
+    gmail_app_password: str = ""
+
     # CORS
     allowed_origins: List[str] = []
 
@@ -87,7 +91,6 @@ class Settings(BaseModel):
 
 def load_settings() -> Settings:
     """Load settings from environment variables"""
-    # Parse allowed origins
     origins_raw = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
     allowed_origins = [origin.strip() for origin in origins_raw.split(",")]
 
@@ -99,6 +102,8 @@ def load_settings() -> Settings:
         secret_key=os.getenv("SECRET_KEY", ""),
         roboflow_api_key=os.getenv("ROBOFLOW_API_KEY"),
         secret_org_code=os.getenv("SECRET_ORG_CODE", ""),
+        gmail_address=os.getenv("GMAIL_ADDRESS", ""),               # ✅ เพิ่มบรรทัดนี้
+        gmail_app_password=os.getenv("GMAIL_APP_PASSWORD", ""),     # ✅ เพิ่มบรรทัดนี้
         allowed_origins=allowed_origins,
         rate_limit_requests=int(os.getenv("RATE_LIMIT_REQUESTS", "100")),
         rate_limit_period=int(os.getenv("RATE_LIMIT_PERIOD", "3600")),
