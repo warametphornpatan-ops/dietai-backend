@@ -167,7 +167,7 @@ def create_food_log(
 
 
 # ✅ แก้: endpoint path เป็น /foods/summary (ลบ /food prefix)
-@router.get("/summary")
+@router.get("/recommendations")
 def get_food_summary(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
