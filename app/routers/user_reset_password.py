@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
+from app.services.email_service import send_password_reset_notification
 
 # ปรับ path import ให้ตรงกับโครงสร้างโฟลเดอร์ของแอป
 from app.database import get_db
@@ -74,5 +75,10 @@ def reset_user_password(payload: ResetPassword, db: Session = Depends(get_db)):
     # 4. ถ้าเจอข้อมูล ให้อัปเดตรหัสผ่าน (เข้ารหัสก่อนเซฟลงฐานข้อมูล)
     account.password = pwd.hash(payload.new_password)
     db.commit()
+
+    notify_email = getattr(account, "email", None)
+    if notify_email:
+        full_name = f"{getattr(account, 'firstName', '')} {getattr(account, 'lastName', '')}".strip()
+        send_password_reset_notification(to_email=notify_email, full_name=full_name)
 
     return {"message": "เปลี่ยนรหัสผ่านผู้ใช้งานสำเร็จ"}

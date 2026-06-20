@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.database import get_db
 from app.schemas import ResetPassword  # ใช้ Schema เดียวกันกับฝั่ง User ที่เพิ่มฟิลด์ username
 from app.models import Doctors, Admin
+from app.services.email_service import send_password_reset_notification
 
 router = APIRouter()
 
@@ -85,9 +86,12 @@ def reset_password_staff(payload: ResetPassword, db: Session = Depends(get_db)):
 
     # เจอแล้ว! ทำการอัปเดตรหัสผ่านใหม่
     account.password_hash = bcrypt_sha256.hash(payload.new_password)
-    
-    # บันทึกลงฐานข้อมูล
     db.add(account)
     db.commit()
+
+    notify_email = getattr(account, "email", None)
+    if notify_email:
+        full_name = f"{getattr(account, 'first_name', '')} {getattr(account, 'last_name', '')}".strip()
+        send_password_reset_notification(to_email=notify_email, full_name=full_name)
 
     return {"message": "เปลี่ยนรหัสผ่านเจ้าหน้าที่สำเร็จ"}
