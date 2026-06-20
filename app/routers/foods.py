@@ -43,40 +43,45 @@ class FoodRecommendationResponse(BaseModel):
 
 
 # ==================== Helper Function สำหรับจับคู่รูปภาพในเครื่อง ====================
-def get_local_image_path(menu_name: str) -> str:
-    """ จับคู่ชื่อเมนูไทยกับ Path รูปภาพในโฟลเดอร์ public/foods ของ Next.js """
-    default_path = "/foods/default-food.jpg"
-    
-    image_mapping = {
-        "กล้วย": "/foods/banana.jpg",
-        "ส้ม": "/foods/orange.jpg",
-        "แอปเปิ้ล": "/foods/apple.jpg",
-        "มะม่วง": "/foods/mango.jpg",
-        "มังคุด": "/foods/mangosteen.jpg",
-        "ขนมชั้น": "/foods/khanom-chan.jpg",
-        "ขนมตาล": "/foods/khanom-tan.jpg",
-        "ขนมบ้าบิ่น": "/foods/ba-bin.jpg",
-        "ทองม้วน": "/foods/thong-muan.jpg",
-        "บราวนี่": "/foods/brownie.jpg",
-        "แพนเค้ก": "/foods/pancake.jpg",
-        "วาฟเฟิล": "/foods/waffle.jpg",
-        "ข้าวกะเพรา": "/foods/ka-prao.jpg",
-        "ไข่ดาว": "/foods/fried-egg.jpg",
-        "โจ๊ก": "/foods/jok.jpg",
-        "ข้าวผัดพริกแกง": "/foods/pad-prik-gaeng.jpg",
-        "ข้าวไข่เจียว": "/foods/kai-jeow.jpg",
-        "ข้าวขาหมู": "/foods/kha-mu.jpg",
-        "ข้าวหมูแดง": "/foods/mu-daeng.jpg",
-        "ข้าวหมูกรอบ": "/foods/mu-grob.jpg",
-        "ข้าวมันไก่": "/foods/khao-man-gai.jpg",
-        "ข้าวคลุกกะปิ": "/foods/khao-khluk-kapi.jpg",
-        "ข้าว": "/foods/rice.jpg",
-        "ผัดไทย": "/foods/pad-thai.jpg",
-        "ราดหน้า": "/foods/rad-na.jpg",
-        "ก๋วยเตี๋ยว": "/foods/noodle.jpg",
-        "ผัดซีอิ๊ว": "/foods/pad-see-ew.jpg"
-    }
-    return image_mapping.get(menu_name, default_path)
+def get_local_image_path(menu_id: int) -> str:
+    """ จับคู่ MenuID กับ Path รูปภาพในโฟลเดอร์ public/foods ของ Next.js """
+    return f"/foods/{menu_id}.jpg"
+
+
+def get_bmi_group(bmi: float) -> str:
+    """แปลง BMI เป็น bmi_group สำหรับ query database"""
+    if bmi < 18.5:
+        return "under"
+    elif 18.5 <= bmi < 23.0:
+        return "normal"
+    elif 23.0 <= bmi < 25.0:
+        return "over"
+    else:
+        return "severe-over"
+
+
+def get_bmi_category_text(bmi: float) -> str:
+    """ส่งข้อความหมวดหมู่ BMI"""
+    if bmi < 18.5:
+        return "น้ำหนักต่ำกว่าเกณฑ์ (Underweight)"
+    elif 18.5 <= bmi < 23.0:
+        return "น้ำหนักปกติ สุขภาพดี (Normal Weight)"
+    elif 23.0 <= bmi < 25.0:
+        return "น้ำหนักเกิน / เริ่มอ้วน (Overweight)"
+    else:
+        return "อ้วนมาก (Obesity)"
+
+
+def get_medical_advice(bmi: float) -> str:
+    """ส่งคำแนะนำทางการแพทย์ตามเกณฑ์ BMI"""
+    if bmi < 18.5:
+        return "เน้นอาหารโปรตีนสูงและคาร์โบไฮเดรตเชิงซ้อน เพิ่มพลังงานด้วยมื้อย่อยเพื่อเสริมสร้างมวลกล้ามเนื้อ"
+    elif 18.5 <= bmi < 23.0:
+        return "รักษาสมดุลพลังงาน ทานอาหารครบ 5 หมู่ในสัดส่วนที่เหมาะสม หลีกเลี่ยงอาหารหวานหรือมันจัดเกินไป"
+    elif 23.0 <= bmi < 25.0:
+        return "จำกัดอาหารประเภททอดและมันจัด ลดคาร์โบไฮเดรต เน้นโปรตีนไขมันต่ำและผลไม้ที่มีกากใยสูง"
+    else:
+        return "เน้นอาหารนึ่ง ต้ม ย่าง ดัชนีน้ำตาลต่ำ งดของทอดและขนมหวานเด็ดขาด เพื่อป้องกันภาวะแทรกซ้อน"
 
 
 # 🌟 สำหรับดึงยอดรวมโภชนาการประจำวัน
@@ -159,113 +164,85 @@ def get_user_food_logs(
     return logs
 
 
-# 🌟 อัปเดตและปรับปรุง: ระบบกรองเมนูและแนะนำรูปภาพตามค่า BMI สดจากฐานข้อมูล SQL
+# 🌟 ✅ อัปเดต: ใช้ตาราง food_bmi_recommendations เพื่อแนะนำอาหารตามเกณฑ์ BMI
 @router.get("/recommendations", response_model=FoodRecommendationResponse)
 def get_food_recommendations(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    # ดึงค่า BMI ของผู้ใช้ที่ Login อยู่ปัจจุบันมาคำนวณอัตโนมัติ
+    # ดึงค่า BMI ของผู้ใช้ที่ Login อยู่ปัจจุบัน
     bmi = getattr(current_user, "bmi", None)
 
     if not bmi:
         raise HTTPException(status_code=400, detail="ไม่พบค่าข้อมูล BMI ของผู้ใช้ในระบบ")
 
-    # กำหนดกลุ่มชื่ออาหารที่มีในโปรเจกต์ของคุณ
-    project_fruits = ["กล้วย", "ส้ม", "แอปเปิ้ล", "มะม่วง", "มังคุด"]
-    project_desserts = ["ขนมชั้น", "ขนมตาล", "ขนมบ้าบิ่น", "ทองม้วน", "บราวนี่", "แพนเค้ก", "วาฟเฟิล"]
-    
-    selected_mains = []
-    selected_fruits = []
-    selected_desserts = []
-    drink_keywords = []
-    
-    category_msg = ""
-    medical_advice = ""
-
-    # 🎯 ลอจิกกรองชื่ออาหารตามเกณฑ์ทางการแพทย์เพื่อความปลอดภัยของผู้ใช้
-    if bmi < 18.5:
-        category_msg = "น้ำหนักต่ำกว่าเกณฑ์ (Underweight)"
-        medical_advice = "เน้นอาหารโปรตีนสูงและคาร์โบไฮเดรตเชิงซ้อน เพิ่มพลังงานด้วยมื้อย่อยเพื่อเสริมสร้างมวลกล้ามเนื้อ"
-        selected_mains = ["ข้าวมันไก่", "ข้าวขาหมู", "ข้าวหมูแดง", "ข้าวไข่เจียว", "โจ๊ก", "ผัดซีอิ๊ว", "ราดหน้า"]
-        selected_fruits = ["กล้วย", "มะม่วง", "แอปเปิ้ล"]
-        selected_desserts = ["แพนเค้ก", "วาฟเฟิล", "ขนมชั้น", "ขนมตาล", "ทองม้วน"]
-        drink_keywords = ["รสธรรมชาติ, ต่อ 100 มล.", "รสช็อกโกแลต", "เวย์โปรตีนผง"]
-        
-    elif 18.5 <= bmi < 23.0:
-        category_msg = "น้ำหนักปกติ สุขภาพดี (Normal Weight)"
-        medical_advice = "รักษาสมดุลพลังงาน ทานอาหารครบ 5 หมู่ในสัดส่วนที่เหมาะสม หลีกเลี่ยงอาหารหวานหรือมันจัดเกินไป"
-        selected_mains = ["ข้าวกะเพรา", "ข้าวผัดพริกแกง", "โจ๊ก", "ข้าวหมูแดง", "ผัดไทย", "ก๋วยเตี๋ยว", "ข้าว"]
-        selected_fruits = ["ส้ม", "แอปเปิ้ล", "มังคุด", "กล้วย"]
-        selected_desserts = ["ขนมบ้าบิ่น", "ทองม้วน", "บราวนี่"]
-        drink_keywords = ["รสธรรมชาติ, ต่อ 100 มล.", "โยเกิร์ต, รสธรรมชาติ"]
-
-    elif 23.0 <= bmi < 25.0:
-        category_msg = "น้ำหนักเกิน / เริ่มอ้วน (Overweight)"
-        medical_advice = "จำกัดอาหารประเภททอดและมันจัด ลดคาร์โบไฮเดรต เน้นโปรตีนไขมันต่ำและผลไม้ที่มีกากใยสูง"
-        selected_mains = ["ข้าวกะเพรา", "โจ๊ก", "ก๋วยเตี๋ยว", "ข้าว"]
-        selected_fruits = ["แอปเปิ้ล", "ส้ม", "มังคุด"]
-        selected_desserts = []
-        drink_keywords = ["พร่องมันเนย", "โยเกิร์ต, ไขมันต่ำ"]
-
-    else:
-        category_msg = "อ้วนมาก (Obesity)"
-        medical_advice = "เน้นอาหารนึ่ง ต้ม ย่าง ดัชนีน้ำตาลต่ำ งดของทอดและขนมหวานเด็ดขาด เพื่อป้องกันภาวะแทรกซ้อน"
-        selected_mains = ["โจ๊ก", "ก๋วยเตี๋ยว", "ข้าว"]
-        selected_fruits = ["แอปเปิ้ล"]
-        selected_desserts = []
-        drink_keywords = ["ขาดมันเนย", "พร่องมันเนย, ยูเอชที รสธรรมชาติ"]
-
-    combined_names = selected_mains + selected_fruits + selected_desserts
+    # แปลง BMI เป็น bmi_group
+    bmi_group = get_bmi_group(bmi)
+    category_msg = get_bmi_category_text(bmi)
+    medical_advice = get_medical_advice(bmi)
 
     recommended_dishes_with_data = []
     recommended_beverages = []
 
     try:
-        # 💾 1. ดึงข้อมูลแคลอรีจากตาราง thai_foodmenu และทำการผูก Path รูปภาพที่ดาวน์โหลดเก็บไว้
-        if combined_names:
-            in_clause = ", ".join([f":name{i}" for i in range(len(combined_names))])
-            query_params = {f"name{i}": name for i, name in enumerate(combined_names)}
-            
-            query = text(f"SELECT ThaiName, Calories, Category FROM thai_foodmenu WHERE ThaiName IN ({in_clause})")
-            db_food = db.execute(query, query_params).mappings().all()
-            food_map = {row["ThaiName"]: row for row in db_food}
-            
-            for name in combined_names:
-                calories = food_map.get(name, {}).get("Calories") or 350
-                category = food_map.get(name, {}).get("Category") or "อาหาร"
-                local_image = get_local_image_path(name)
-
-                recommended_dishes_with_data.append({
-                    "name": name,
-                    "calories": int(calories),
-                    "category": category,
-                    "image_url": local_image
-                })
+        # ✅ 1. Query food_bmi_recommendations JOIN thai_foodmenu ตามเกณฑ์ BMI
+        query = text("""
+            SELECT 
+                fbr.id,
+                fbr.menu_id,
+                tm."ThaiName",
+                tm."Calories",
+                tm."Category"
+            FROM food_bmi_recommendations fbr
+            JOIN thai_foodmenu tm ON fbr.menu_id = tm."MenuID"
+            WHERE fbr.bmi_group = :bmi_group
+            ORDER BY tm."Category", tm."ThaiName"
+        """)
         
-        # 💾 2. ดึงข้อมูลเครื่องดื่มกลุ่ม นม/โยเกิร์ต จากตาราง thai_nutrition ในฐานข้อมูล SQL
-        if drink_keywords:
-            conditions = [f"food_thai LIKE :drink{i}" for i in range(len(drink_keywords))]
-            drink_params = {f"drink{i}": f"%{kw}%" for i, kw in enumerate(drink_keywords)}
-            
-            query_drink = text(f"SELECT food_thai, calories, protein, fat FROM thai_nutrition WHERE {' OR '.join(conditions)}")
-            db_drinks = db.execute(query_drink, drink_params).mappings().all()
-            
-            for row in db_drinks:
-                recommended_beverages.append({
-                    "name": row["food_thai"],
-                    "calories": float(row["calories"] or 0),
-                    "protein": float(row["protein"] or 0),
-                    "fat": float(row["fat"] or 0)
-                })
+        db_foods = db.execute(query, {"bmi_group": bmi_group}).mappings().all()
+        
+        # ✅ 2. จัดเรียงอาหารตามหมวดหมู่
+        for row in db_foods:
+            menu_id = row["menu_id"]
+            thai_name = row["ThaiName"]
+            calories = row["Calories"]
+            category = row["Category"]
+            local_image = get_local_image_path(menu_id)
+
+            recommended_dishes_with_data.append({
+                "name": thai_name,
+                "calories": int(calories) if calories else 350,
+                "category": category if category else "อาหาร",
+                "image_url": local_image
+            })
+        
+        # ✅ 3. ดึงข้อมูลเครื่องดื่มกลุ่ม นม/โยเกิร์ต จากตาราง thai_nutrition
+        query_drink = text("""
+            SELECT food_thai, calories, protein, fat 
+            FROM thai_nutrition 
+            WHERE food_thai LIKE '%นม%' OR food_thai LIKE '%โยเกิร์ต%' OR food_thai LIKE '%เวย์%'
+            LIMIT 5
+        """)
+        
+        db_drinks = db.execute(query_drink).mappings().all()
+        
+        for row in db_drinks:
+            recommended_beverages.append({
+                "name": row["food_thai"],
+                "calories": float(row["calories"] or 0),
+                "protein": float(row["protein"] or 0),
+                "fat": float(row["fat"] or 0)
+            })
 
     except Exception as e:
-        print(f"Database Fetch Error: {e}")
+        print(f"❌ Database Fetch Error: {e}")
         # ข้อมูลสำรองกรณีฐานข้อมูลมีปัญหา (Fallback)
-        recommended_dishes_with_data = [{
-            "name": n, "calories": 350, "category": "ทั่วไป", "image_url": get_local_image_path(n)
-        } for n in combined_names]
-        recommended_beverages = [{"name": "น้ำเปล่าสะอาด", "calories": 0, "protein": 0, "fat": 0}]
+        recommended_dishes_with_data = [
+            {"name": "น้ำเปล่า", "calories": 0, "category": "เครื่องดื่ม", "image_url": "/foods/water.jpg"}
+        ]
+        recommended_beverages = [
+            {"name": "น้ำเปล่าสะอาด", "calories": 0, "protein": 0, "fat": 0}
+        ]
 
     return {
         "bmi": float(bmi),
@@ -367,7 +344,7 @@ def search_food_by_name(name: str, db: Session = Depends(get_db)):
             "EnglishName": r["EnglishName"],
             "Calories": r["Calories"],
             "Category": r["Category"],
-            "Nutrition": r["Nutrition"],  # ← ต้องส่งกลับด้วย!
+            "Nutrition": r["Nutrition"],
         }
         for r in result
     ]
