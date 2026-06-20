@@ -8,8 +8,10 @@ from datetime import datetime, timedelta, timezone
 from ..database import get_db
 from .. import models
 from ..security import get_current_user
+import logging
 
 router = APIRouter(tags=["Foods"])
+logger = logging.getLogger(__name__)
 
 THAI_TZ = timezone(timedelta(hours=7))
 
@@ -170,22 +172,43 @@ def get_food_recommendations(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    logger.info(f"🔵 Getting recommendations for user {current_user.id}")
+    
     # ดึงค่า BMI ของผู้ใช้ที่ Login อยู่ปัจจุบัน
     bmi = getattr(current_user, "bmi", None)
+    logger.info(f"📊 User BMI: {bmi}")
 
     if not bmi:
+        logger.error("❌ No BMI found for user")
         raise HTTPException(status_code=400, detail="ไม่พบค่าข้อมูล BMI ของผู้ใช้ในระบบ")
 
     # แปลง BMI เป็น bmi_group
     bmi_group = get_bmi_group(bmi)
     category_msg = get_bmi_category_text(bmi)
     medical_advice = get_medical_advice(bmi)
+    
+    logger.info(f"📌 BMI Group: {bmi_group}")
 
     recommended_dishes_with_data = []
     recommended_beverages = []
 
     try:
-        # ✅ 1. Query food_bmi_recommendations JOIN thai_foodmenu ตามเกณฑ์ BMI
+        # ✅ 1. ตรวจสอบว่ามี data ใน food_bmi_recommendations หรือไม่
+        logger.info(f"🔍 Checking food_bmi_recommendations for bmi_group='{bmi_group}'")
+        
+        count_query = text("""
+            SELECT COUNT(*) as cnt FROM food_bmi_recommendations WHERE bmi_group = :bmi_group
+        """)
+        count_result = db.execute(count_query, {"bmi_group": bmi_group}).first()
+        count = count_result[0] if count_result else 0
+        logger.info(f"📊 Found {count} records in food_bmi_recommendations for {bmi_group}")
+        
+        if count == 0:
+            logger.warning(f"⚠️ No recommendations found for bmi_group '{bmi_group}'")
+        
+        # ✅ 2. Query food_bmi_recommendations JOIN thai_foodmenu ตามเกณฑ์ BMI
+        logger.info("📡 Executing JOIN query...")
+        
         query = text("""
             SELECT 
                 fbr.id,
@@ -194,29 +217,42 @@ def get_food_recommendations(
                 tm."Calories",
                 tm."Category"
             FROM food_bmi_recommendations fbr
-            JOIN thai_foodmenu tm ON fbr.menu_id = tm."MenuID"
+            LEFT JOIN thai_foodmenu tm ON fbr.menu_id = tm."MenuID"
             WHERE fbr.bmi_group = :bmi_group
             ORDER BY tm."Category", tm."ThaiName"
         """)
         
         db_foods = db.execute(query, {"bmi_group": bmi_group}).mappings().all()
+        logger.info(f"✅ Query returned {len(db_foods)} foods")
         
-        # ✅ 2. จัดเรียงอาหารตามหมวดหมู่
+        if len(db_foods) == 0:
+            logger.warning(f"⚠️ WARNING: No foods found! The query returned empty result.")
+            logger.warning(f"   This might mean:")
+            logger.warning(f"   1. food_bmi_recommendations table is empty or has no '{bmi_group}' entries")
+            logger.warning(f"   2. menu_id in food_bmi_recommendations doesn't match MenuID in thai_foodmenu")
+        
+        # ✅ 3. จัดเรียงอาหารตามหมวดหมู่
         for row in db_foods:
-            menu_id = row["menu_id"]
-            thai_name = row["ThaiName"]
-            calories = row["Calories"]
-            category = row["Category"]
-            local_image = get_local_image_path(menu_id)
+            try:
+                menu_id = row["menu_id"]
+                thai_name = row["ThaiName"]
+                calories = row["Calories"]
+                category = row["Category"]
+                local_image = get_local_image_path(menu_id)
 
-            recommended_dishes_with_data.append({
-                "name": thai_name,
-                "calories": int(calories) if calories else 350,
-                "category": category if category else "อาหาร",
-                "image_url": local_image
-            })
+                recommended_dishes_with_data.append({
+                    "name": thai_name,
+                    "calories": int(calories) if calories else 350,
+                    "category": category if category else "อาหาร",
+                    "image_url": local_image
+                })
+                logger.debug(f"  ✓ Added: {thai_name} ({calories} kcal)")
+            except Exception as row_error:
+                logger.error(f"  ❌ Error processing row: {row_error}")
+                continue
         
-        # ✅ 3. ดึงข้อมูลเครื่องดื่มกลุ่ม นม/โยเกิร์ต จากตาราง thai_nutrition
+        # ✅ 4. ดึงข้อมูลเครื่องดื่มกลุ่ม นม/โยเกิร์ต จากตาราง thai_nutrition
+        logger.info("🥛 Fetching beverages...")
         query_drink = text("""
             SELECT food_thai, calories, protein, fat 
             FROM thai_nutrition 
@@ -225,6 +261,7 @@ def get_food_recommendations(
         """)
         
         db_drinks = db.execute(query_drink).mappings().all()
+        logger.info(f"✅ Found {len(db_drinks)} beverages")
         
         for row in db_drinks:
             recommended_beverages.append({
@@ -235,7 +272,9 @@ def get_food_recommendations(
             })
 
     except Exception as e:
-        print(f"❌ Database Fetch Error: {e}")
+        logger.error(f"❌ Database Fetch Error: {type(e).__name__}: {str(e)}")
+        logger.error(f"   Query params: bmi_group={bmi_group}")
+        
         # ข้อมูลสำรองกรณีฐานข้อมูลมีปัญหา (Fallback)
         recommended_dishes_with_data = [
             {"name": "น้ำเปล่า", "calories": 0, "category": "เครื่องดื่ม", "image_url": "/foods/water.jpg"}
@@ -244,13 +283,19 @@ def get_food_recommendations(
             {"name": "น้ำเปล่าสะอาด", "calories": 0, "protein": 0, "fat": 0}
         ]
 
-    return {
+    logger.info(f"✅ Returning {len(recommended_dishes_with_data)} dishes + {len(recommended_beverages)} beverages")
+    
+    response_data = {
         "bmi": float(bmi),
         "category": category_msg,
         "advice": medical_advice,
         "recommended_dishes": recommended_dishes_with_data,
         "beverages": recommended_beverages
     }
+    
+    logger.info(f"📤 Response structure: {{'bmi': {response_data['bmi']}, 'dishes_count': {len(recommended_dishes_with_data)}, 'beverages_count': {len(recommended_beverages)}}}")
+    
+    return response_data
 
 
 # ✅ เพิ่ม endpoint /foods ที่รองรับหลาย query parameter
