@@ -16,6 +16,11 @@ from app.database import get_db
 from app.models import DoctorApplication, Doctors
 from app.config import settings
 
+from app.services.email_service import (
+    send_doctor_approved_notification,
+    send_doctor_rejected_notification,
+)
+
 router = APIRouter(prefix="/admins/doctors", tags=["doctors"])
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
@@ -52,6 +57,11 @@ class ApproveDoctorResponse(BaseModel):
     message: str
     doctor_id: int | None = None
     status: str
+
+class DoctorEmailNotifyRequest(BaseModel):
+    email: str
+    full_name: str
+    result: str 
 
 # ============================================================
 # 🔐 Helper: ดึงข้อมูล Admin จาก JWT Token
@@ -241,3 +251,18 @@ async def approve_doctor_application(
             status_code=500,
             detail=f"เกิดข้อผิดพลาด: {str(e)}"
         )
+    
+@router.post("/notify-email")
+async def notify_doctor_email(payload: DoctorEmailNotifyRequest):
+    """
+    Endpoint เบาๆ สำหรับให้ frontend เรียกหลังจาก Supabase update สำเร็จแล้ว
+    ใช้แค่ส่งอีเมลแจ้งเตือนเท่านั้น ไม่แตะ logic อนุมัติ/ปฏิเสธ
+    """
+    if payload.result == "approved":
+        sent = send_doctor_approved_notification(to_email=payload.email, full_name=payload.full_name)
+    elif payload.result == "rejected":
+        sent = send_doctor_rejected_notification(to_email=payload.email, full_name=payload.full_name)
+    else:
+        raise HTTPException(status_code=400, detail="result ต้องเป็น 'approved' หรือ 'rejected'")
+
+    return {"email_sent": sent}
