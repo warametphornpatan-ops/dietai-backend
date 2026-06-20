@@ -422,7 +422,30 @@ def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db))
     ).first()
     if not admin:
         raise HTTPException(status_code=404, detail="ไม่พบข้อมูลแอดมินที่มีอีเมลนี้")
-
+ 
+    # ✅ 1. หา Supabase Auth user
+    try:
+        supabase_users = supabase.auth.admin.list_users()
+        supabase_user = None
+        for u in supabase_users.users:
+            if u.email and u.email.lower() == payload.email.strip().lower():
+                supabase_user = u
+                break
+        
+        if supabase_user:
+            # ✅ 2. อัปเดตรหัสผ่านใน Supabase Auth
+            supabase.auth.admin.update_user_by_id(
+                supabase_user.id,
+                {"password": payload.new_password}
+            )
+        else:
+            raise HTTPException(status_code=400, detail="ไม่พบผู้ใช้นี้ใน Supabase Auth")
+    except Exception as e:
+        if "ไม่พบผู้ใช้นี้" in str(e):
+            raise
+        raise HTTPException(status_code=400, detail=f"ไม่สามารถตั้งรหัสผ่านใน Supabase: {str(e)}")
+ 
+    # ✅ 3. บันทึก hash ใน Database ด้วย
     admin.password_hash = bcrypt_sha256.hash(payload.new_password)
     try:
         db.commit()
@@ -430,7 +453,6 @@ def sync_admin_password(payload: SyncPasswordReq, db: Session = Depends(get_db))
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
-
 
 # --- 12. API แก้ไขข้อมูล Admin Profile (ตัวเอง) ---
 @router.patch("/profile/{admin_id}")
