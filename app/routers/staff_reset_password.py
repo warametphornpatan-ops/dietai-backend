@@ -17,7 +17,7 @@ class IdCardCheck(BaseModel):
 
 
 # 🔍 2. Endpoint สำหรับตรวจสอบเลขบัตรประชาชนของ Staff (Admin / Doctors)
-@router.post("/staff/check-idcard")
+@router.post("/staff/check-id-card")
 def check_staff_idcard(payload: IdCardCheck, db: Session = Depends(get_db)):
     # ดึงมาเฉพาะตัวเลขเพื่อความชัวร์ ป้องกันอักขระแปลกปลอม
     citizen_digits = "".join(ch for ch in payload.id_card if ch.isdigit())

@@ -133,8 +133,10 @@ app.include_router(food_logs.router,           prefix="/api/foods")             
 app.include_router(meals.router,               prefix="/api/meals",         tags=["meals"])       # ✅ เพิ่ม /api
 app.include_router(alerts.router,              prefix="/api/alerts",        tags=["alerts"])      # ✅ เพิ่ม /api
 app.include_router(food_images.router)
-app.include_router(user_reset_password.router)
-app.include_router(staff_reset_password.router)
+#app.include_router(user_reset_password.router)
+#app.include_router(staff_reset_password.router)
+app.include_router(user_reset_password.router,  prefix="/api", tags=["user-reset-password"])
+app.include_router(staff_reset_password.router, prefix="/api", tags=["staff-reset-password"])
 app.include_router(doctor.router,              prefix="/api/doctors",       tags=["doctor"])      # ✅ คงเดิม
 app.include_router(admin.router,               prefix="/api/admins",        tags=["admin"])       # ✅ คงเดิม
 app.include_router(organization.router,        prefix="/api/organizations", tags=["organizations"]) # ✅ คงเดิม
