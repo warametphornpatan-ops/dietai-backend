@@ -110,12 +110,19 @@ def register_admin(
         raise HTTPException(status_code=400, detail="ชื่อผู้ใช้นี้ถูกใช้งานแล้วในระบบบัญชีแพทย์ผู้ใช้งาน")
 
     try:
-        supabase.auth.admin.invite_user_by_email(
-            payload.email.strip(),
-            options={"redirectTo": "https://dietai-frontend.vercel.app/auth/callback"}
+        supabase.auth.admin.create_user({
+            "email": payload.email.strip(),
+            "password": "TempPassword123!@",
+            "email_confirm": True
+        })
+        
+        supabase.auth.admin.generate_link(
+            type="recovery",
+            email=payload.email.strip(),
+            options={"redirectTo": "https://dietai-frontend.vercel.app/auth/set-password"}
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"ส่งอีเมลคำเชิญไม่สำเร็จ: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
     new_admin = models.Admin(
         org_code=payload.org_code,
