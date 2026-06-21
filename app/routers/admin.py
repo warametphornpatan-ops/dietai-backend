@@ -112,10 +112,11 @@ def register_admin(
     try:
         supabase.auth.admin.invite_user_by_email(
             payload.email.strip(),
-            options={"redirectTo": "https://dietai-frontend.vercel.app/auth/callback"}
+            options={"redirect_to": "https://dietai-frontend.vercel.app/auth/set-password"}
         )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"ส่งอีเมลคำเชิญไม่สำเร็จ: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"ส่งคำเชิญไม่สำเร็จ: {str(e)}")
+    
 
     new_admin = models.Admin(
         org_code=payload.org_code,
