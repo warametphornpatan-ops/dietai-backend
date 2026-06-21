@@ -116,11 +116,11 @@ def register_admin(
             "email_confirm": True
         })
         
-        supabase.auth.admin.generate_link(
-            type="recovery",
-            email=payload.email.strip(),
-            options={"redirectTo": "https://dietai-frontend.vercel.app/auth/set-password"}
-        )
+        #supabase.auth.admin.generate_link(
+           #type="recovery",
+           # email=payload.email.strip(),
+           # options={"redirectTo": "https://dietai-frontend.vercel.app/auth/set-password"}
+        #)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
